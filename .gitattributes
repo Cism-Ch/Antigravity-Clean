@@ -1,0 +1,14 @@
+# Auto detect text files and perform LF normalization
+* text=auto eol=lf
+
+# Explicitly declare script line endings for cross-platform compatibility
+*.sh text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+
+# Windows batch and PowerShell scripts
+*.ps1 text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
