@@ -106,6 +106,7 @@ param(
     [switch]$CleanTrackers,
     [switch]$CleanScratch,
     [switch]$CleanPlayground,
+    [switch]$CleanBackup,
     [switch]$DeepClean,
 
     [switch]$PruneOrphanProjects,

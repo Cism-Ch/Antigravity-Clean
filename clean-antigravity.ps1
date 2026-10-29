@@ -2,22 +2,24 @@
 <#
 .SYNOPSIS
     Antigravity & Gemini Cleaner (agy-clean) — Cross-platform directory tree audit,
-    risk assessment, and modular cleanup for ~/.gemini and ~/.gemini/antigravity (Windows, macOS, Linux).
+    risk assessment, and modular cleanup for ~/.gemini, ~/.gemini/antigravity (Antigravity 2.0),
+    ~/.gemini/antigravity-ide (Antigravity IDE), and ~/.gemini/antigravity-backup (Windows, macOS, Linux).
 
 .DESCRIPTION
-    Community disk-space optimization and hygiene tool for Google Antigravity IDE & Gemini CLI:
-    1. Displays the ~/.gemini directory tree with STATUS (KEEP / DELETE) and RISK LEVEL.
+    Community disk-space optimization and hygiene tool for Google Antigravity (2.0 & IDE) and Gemini CLI:
+    1. Displays the ~/.gemini directory tree across both Antigravity 2.0 (antigravity/) and
+       Antigravity IDE (antigravity-ide/) with STATUS (KEEP / DELETE) and RISK LEVEL.
     2. Retains the N most recent real conversations per project (-KeepPerProject 2), while
        automatically marking any "(Empty / initialized session)" as DELETE [EMPTY SESSION]
        without consuming the quota of real conversations, and keeping subagents out of user quota.
     3. Supports granular a-la-carte cleanup (-CleanTmpAndLogs, -CleanOrphanPb, -CleanScratch,
-       -CleanPlayground, -CleanBrowser, -CleanTrackers, -CleanConversations) or full cleanup (-DeepClean).
+       -CleanPlayground, -CleanBrowser, -CleanTrackers, -CleanBackup, -CleanConversations) or full (-DeepClean).
     4. Clearly documents risk levels (NONE, LOW, MODERATE) before any deletion.
     5. Runs across Windows, macOS, and Linux (PowerShell 5.1+ and PowerShell 7+), with English (default)
        and French (-Lang fr) localization, plus structured JSON output (-Json) for AI agents.
 
 .PARAMETER KeepPerProject
-    Number of most recent real user conversations to keep per project (Default: 2).
+    Number of most recent real user conversations to keep per project per surface (Default: 2).
     Empty sessions and subagent runs do not consume this quota.
 
 .PARAMETER MaxAgeDays
@@ -27,26 +29,29 @@
     Protect sessions modified within the last N minutes from deletion to avoid disrupting active work (Default: 15).
 
 .PARAMETER CleanConversations
-    Clean out-of-quota conversations, empty sessions, and paired .pb files.
+    Clean out-of-quota conversations, empty sessions, and paired .pb files across antigravity/ and antigravity-ide/.
     (Enabled by default when no granular -Clean* switch is specified).
 
 .PARAMETER CleanOrphanPb
-    Target only orphaned .pb files in antigravity/conversations/ that have no matching folder in brain/ (Risk: NONE).
+    Target only orphaned .pb files in conversations/ that have no matching folder in brain/ (Risk: NONE).
 
 .PARAMETER CleanTmpAndLogs
     Target only tmp, cache, log, crashes, and raw step/task logs in kept conversations (Risk: NONE).
 
 .PARAMETER CleanBrowser
-    Target only antigravity/browser_recordings (Playwright/browser video captures) (Risk: NONE).
+    Target only browser_recordings (Playwright/browser video captures) (Risk: NONE).
 
 .PARAMETER CleanTrackers
-    Target only code_tracker, implicit, and context_state (Risk: LOW - automatically rebuilt by the IDE).
+    Target only code_tracker, implicit, and context_state (Risk: LOW - automatically rebuilt).
 
 .PARAMETER CleanScratch
-    Target only antigravity/scratch (temporary workspaces outside projects) (Risk: LOW).
+    Target only scratch (temporary workspaces outside projects) (Risk: LOW).
 
 .PARAMETER CleanPlayground
-    Target only antigravity/playground (sandbox prototype projects) (Risk: MODERATE - verify unsaved prototypes).
+    Target only playground (sandbox prototype projects) (Risk: MODERATE - verify unsaved prototypes).
+
+.PARAMETER CleanBackup
+    Target ~/.gemini/antigravity-backup (legacy migration snapshot created during IDE -> 2.0 upgrade) (Risk: LOW).
 
 .PARAMETER DeepClean
     Enable all cleanup categories above simultaneously.
@@ -74,22 +79,6 @@
 
 .PARAMETER Force
     Skip interactive confirmation prompt (y/N) when -Execute is specified.
-
-.EXAMPLE
-    ./clean-antigravity.ps1
-    # Dry-run mode: displays directory tree, conversation table, statuses, and risk guide.
-
-.EXAMPLE
-    ./clean-antigravity.ps1 -CleanTmpAndLogs -CleanOrphanPb -CleanBrowser -Execute -Force
-    # 100% risk-free cleanup: purges only orphaned .pb files, tmp, logs, and browser recordings.
-
-.EXAMPLE
-    ./clean-antigravity.ps1 -CleanScratch -Execute
-    # Purges the scratch directory and out-of-quota conversations.
-
-.EXAMPLE
-    ./clean-antigravity.ps1 -DeepClean -Execute -Force
-    # Full cleanup (conversations + orphaned .pb + scratch + playground + all caches) without prompt.
 #>
 
 [CmdletBinding()]
@@ -110,6 +99,7 @@ param(
     [switch]$CleanTrackers,
     [switch]$CleanScratch,
     [switch]$CleanPlayground,
+    [switch]$CleanBackup,
     [switch]$DeepClean,
 
     [switch]$PruneOrphanProjects,
@@ -170,7 +160,8 @@ function Msg([string]$En, [string]$Fr) {
 $anyGranularSwitch = $CleanConversations.IsPresent -or $CleanOrphanPb.IsPresent -or
                      $CleanTmpAndLogs.IsPresent -or $CleanBrowser.IsPresent -or
                      $CleanTrackers.IsPresent -or $CleanScratch.IsPresent -or
-                     $CleanPlayground.IsPresent -or $DeepClean.IsPresent
+                     $CleanPlayground.IsPresent -or $CleanBackup.IsPresent -or
+                     $DeepClean.IsPresent
 
 $doConversations = $DeepClean.IsPresent -or $CleanConversations.IsPresent -or (-not $anyGranularSwitch)
 $doOrphanPb      = $DeepClean.IsPresent -or $CleanOrphanPb.IsPresent -or $doConversations
@@ -179,6 +170,7 @@ $doBrowser       = $DeepClean.IsPresent -or $CleanBrowser.IsPresent
 $doTrackers      = $DeepClean.IsPresent -or $CleanTrackers.IsPresent
 $doScratch       = $DeepClean.IsPresent -or $CleanScratch.IsPresent
 $doPlayground    = $DeepClean.IsPresent -or $CleanPlayground.IsPresent
+$doBackup        = $DeepClean.IsPresent -or $CleanBackup.IsPresent
 
 # --- Utility Functions ---
 
@@ -211,7 +203,6 @@ function Get-FolderStats {
         return [PSCustomObject]@{ Bytes = [int64]$rootItem.Length; Files = 1; Dirs = 0 }
     }
 
-    # Fast iterative .NET directory traversal to avoid PowerShell pipeline overhead on large trees
     $stack = [System.Collections.Generic.Stack[System.IO.DirectoryInfo]]::new()
     $stack.Push([System.IO.DirectoryInfo]$rootItem)
 
@@ -226,7 +217,6 @@ function Get-FolderStats {
         try {
             foreach ($subDir in $current.EnumerateDirectories()) {
                 $dirCount++
-                # Avoid following reparse points / symlinks into infinite loops
                 if (($subDir.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
                     $stack.Push($subDir)
                 }
@@ -292,24 +282,45 @@ function Get-FolderInfo {
             return @{
                 Status = (Msg "PARTIAL (See subfolders)" "PARTIEL (Voir sous-dossiers)")
                 Risk   = "-"
-                Role   = (Msg "Google Antigravity IDE Core" "Coeur Google Antigravity IDE")
+                Role   = (Msg "Antigravity 2.0 (App & agy CLI)" "Antigravity 2.0 (App & CLI agy)")
             }
         }
-        "^antigravity/scratch$" {
+        "^antigravity-ide$" {
+            return @{
+                Status = (Msg "PARTIAL (See subfolders)" "PARTIEL (Voir sous-dossiers)")
+                Risk   = "-"
+                Role   = (Msg "Antigravity IDE (VS Code / Pre-2.0)" "Antigravity IDE (VS Code / Pre-2.0)")
+            }
+        }
+        "^antigravity-backup$" {
+            return @{
+                Status = (Format-OptStatus $doBackup "-CleanBackup")
+                Risk   = (Msg "LOW (old migration backup)" "FAIBLE (ancienne sauvegarde migration)")
+                Role   = (Msg "Legacy migration snapshot" "Archive de migration pre-2.0")
+            }
+        }
+        "^antigravity-browser-profile$" {
+            return @{
+                Status = (Msg "KEEP [BROWSER PROFILE]" "CONSERVER [PROFIL NAVIGATEUR]")
+                Risk   = (Msg "IMPORTANT (cookies & sessions)" "IMPORTANT (cookies & sessions)")
+                Role   = (Msg "Antigravity Browser Profile" "Profil Chromium Antigravity")
+            }
+        }
+        "^antigravity(-ide)?/scratch$" {
             return @{
                 Status = (Format-OptStatus $doScratch "-CleanScratch")
                 Risk   = (Msg "LOW (temp files outside projects)" "FAIBLE (fichiers temp hors-projet)")
                 Role   = (Msg "Temporary workspaces" "Espaces de travail temporaires")
             }
         }
-        "^antigravity/playground$" {
+        "^antigravity(-ide)?/playground$" {
             return @{
                 Status = (Format-OptStatus $doPlayground "-CleanPlayground")
                 Risk   = (Msg "MODERATE (deletes Playground prototypes)" "MODERE (efface les prototypes Playground)")
                 Role   = (Msg "Disposable sandbox projects" "Projets bacs a sable jetables")
             }
         }
-        "^antigravity/conversations$" {
+        "^antigravity(-ide)?/conversations$" {
             $st = if ($doOrphanPb -or $doConversations) {
                 Msg "CLEAN (Orphans + Quota)" "NETTOYER (Orphelins + Quota)"
             } else {
@@ -321,7 +332,7 @@ function Get-FolderInfo {
                 Role   = (Msg "Session Protobuf (.pb) states" "Etats Protobuf (.pb) des sessions")
             }
         }
-        "^antigravity/brain$" {
+        "^antigravity(-ide)?/brain$" {
             $st = if ($doConversations) {
                 Msg "CLEAN (Top $KeepPerProject + Empty)" "NETTOYER (Top $KeepPerProject + Vides)"
             } else {
@@ -333,35 +344,35 @@ function Get-FolderInfo {
                 Role   = (Msg "Transcripts, Artifacts & Logs" "Transcripts, Artefacts & Logs")
             }
         }
-        "^antigravity/browser_recordings$" {
+        "^antigravity(-ide)?/browser_recordings$" {
             return @{
                 Status = (Format-OptStatus $doBrowser "-CleanBrowser")
                 Risk   = (Msg "NONE (past test videos)" "AUCUN (videos de tests passes)")
                 Role   = (Msg "Browser Captures & Videos" "Captures & Videos Navigateur")
             }
         }
-        "^antigravity/(code_tracker|implicit|context_state)$" {
+        "^antigravity(-ide)?/(code_tracker|implicit|context_state)$" {
             return @{
                 Status = (Format-OptStatus $doTrackers "-CleanTrackers")
                 Risk   = (Msg "LOW (rebuilt automatically by IDE)" "FAIBLE (reconstruit auto par l'IDE)")
                 Role   = (Msg "Indexing & Context snapshots" "Indexation & Snapshots de contexte")
             }
         }
-        "^antigravity/(log|cache|crashes)$" {
+        "^antigravity(-ide)?/(log|cache|crashes)$" {
             return @{
                 Status = (Format-OptStatus $doTmpAndLogs "-CleanTmpAndLogs")
                 Risk   = (Msg "NONE (logs & technical cache)" "AUCUN (journaux & cache technique)")
                 Role   = (Msg "Logs, Cache & Crash dumps" "Logs, Cache & Crash dumps")
             }
         }
-        "^antigravity/(bin|builtin)$" {
+        "^antigravity(-ide)?/(bin|builtin)$" {
             return @{
                 Status = (Msg "KEEP [SYSTEM]" "CONSERVER [SYSTEME]")
                 Risk   = (Msg "CRITICAL (do not touch)" "CRITIQUE (ne pas toucher)")
                 Role   = (Msg "Internal Binaries & Skills" "Binaires & Skills internes")
             }
         }
-        "^antigravity/(mcp|global_workflows|knowledge)$" {
+        "^antigravity(-ide)?/(mcp|global_workflows|knowledge)$" {
             return @{
                 Status = (Msg "KEEP [CONFIG]" "CONSERVER [CONFIG]")
                 Risk   = (Msg "IMPORTANT (your settings)" "IMPORTANT (vos reglages)")
@@ -391,16 +402,13 @@ function Resolve-ProjectRootFromCandidate {
 
     $clean = $CandidatePath -replace '^file:///?', '' -replace '%3A', ':' -replace '%20', ' '
     $clean = $clean.Trim('"', '''', ' ')
-    # Ensure Unix absolute paths keep their leading slash if file:/// stripped it
     if ($clean -match '^(Users|home)/') {
         $clean = "/" + $clean
     }
 
-    # Normalize forward/backslashes for regex checks
     $normSlash = $clean -replace '\\+', '/'
     if ($normSlash -match '\.gemini/antigravity') { return "" }
 
-    # Convert to native OS separator for local disk existence checks
     $nativePath = if ($IsWindowsOS) {
         ($normSlash -replace '/+', '\').TrimEnd('\')
     } else {
@@ -429,7 +437,6 @@ function Resolve-ProjectRootFromCandidate {
         }
     }
 
-    # Fallback heuristic for deleted/unmounted projects across Windows, macOS, and Linux
     if ($normSlash -match '^([a-zA-Z]:/Users/[^/]+/(?:Dev|Projects|Repos|Workspace|Code|Documents|Desktop)/[^/]+/[^/]+)') {
         return $(if ($IsWindowsOS) { $Matches[1].Replace('/', '\') } else { $Matches[1] })
     }
@@ -444,7 +451,7 @@ function Resolve-ProjectRootFromCandidate {
 }
 
 function Get-ConversationMetadata {
-    param([System.IO.DirectoryInfo]$ConvDir)
+    param([System.IO.DirectoryInfo]$ConvDir, [string]$SurfaceName = "antigravity")
 
     $transcript = Join-Paths @($ConvDir.FullName, ".system_generated", "logs", "transcript.jsonl")
     $projectPath = ""
@@ -539,6 +546,9 @@ function Get-ConversationMetadata {
     } else {
         Split-Path -Path $projectPath -Leaf
     }
+    if ($SurfaceName -eq "antigravity-ide") {
+        $projectName = "$projectName [IDE]"
+    }
 
     $lastActive = if (Test-Path -LiteralPath $transcript) {
         (Get-Item -LiteralPath $transcript).LastWriteTime
@@ -550,8 +560,9 @@ function Get-ConversationMetadata {
 
     return [PSCustomObject]@{
         Id             = $ConvDir.Name
+        Surface        = $SurfaceName
         ProjectName    = $projectName
-        ProjectPath    = if ($isGlobal) { "Global" } else { $projectPath }
+        ProjectPath    = if ($isGlobal) { "Global::$SurfaceName" } else { "$projectPath::$SurfaceName" }
         ProjectExists  = $projectExists
         Topic          = $topic
         IsEmptySession = $isEmptySession
@@ -575,7 +586,7 @@ function Get-TreeReport {
         $prefix2 = if ($isLast1) { "    " } else { "|   " }
 
         if ($item1.PSIsContainer) {
-            if ($item1.Name -eq "antigravity") {
+            if ($item1.Name -in @("antigravity", "antigravity-ide")) {
                 $subEntries = [System.Collections.Generic.List[object]]::new()
                 [int64]$agyBytes = 0L
                 [int]$agyFiles = 0
@@ -608,7 +619,7 @@ function Get-TreeReport {
                     }
                 }
 
-                $info1 = Get-FolderInfo -RelPath "antigravity" -Bytes $agyBytes
+                $info1 = Get-FolderInfo -RelPath $item1.Name -Bytes $agyBytes
                 $list.Add([PSCustomObject]@{
                     Tree      = "$branch1[$($item1.Name)]"
                     Status    = $info1.Status
@@ -622,13 +633,19 @@ function Get-TreeReport {
                 $sortedSubs = @($subEntries | Sort-Object Bytes -Descending)
                 for ($j = 0; $j -lt $sortedSubs.Count; $j++) {
                     $sub = $sortedSubs[$j]
-                    if (-not $sub.IsDir -and $sub.Bytes -lt 10KB) { continue }
+                    if (-not $sub.IsDir -and $sub.Bytes -lt 10KB -and $sub.Item.Name -ne ".ide_migration") { continue }
                     $isLast2 = ($j -eq $sortedSubs.Count - 1)
                     $branch2 = if ($isLast2) { "+-- " } else { "|-- " }
-                    $rel2 = "antigravity/$($sub.Item.Name)"
+                    $rel2 = "$($item1.Name)/$($sub.Item.Name)"
                     $label2 = if ($sub.IsDir) { "$prefix2$branch2[$($sub.Item.Name)]" } else { "$prefix2$branch2$($sub.Item.Name)" }
                     $info2 = if ($sub.IsDir) {
                         Get-FolderInfo -RelPath $rel2 -Bytes $sub.Bytes
+                    } elseif ($sub.Item.Name -eq ".ide_migration") {
+                        @{
+                            Status = (Msg "KEEP [MIGRATION MARKER]" "CONSERVER [MARQUEUR MIGRATION]")
+                            Risk   = "NONE"
+                            Role   = (Msg "Marks IDE -> Antigravity 2.0 migration" "Marqueur de migration IDE -> 2.0")
+                        }
                     } else {
                         @{
                             Status = (Msg "KEEP [INDEX/DB]" "CONSERVER [INDEX/DB]")
@@ -688,9 +705,20 @@ if (-not (Test-Path -LiteralPath $GeminiRoot)) {
 }
 
 $now = Get-Date
-$AntigravityRoot = Join-Paths @($GeminiRoot, "antigravity")
-$BrainPath       = Join-Paths @($AntigravityRoot, "brain")
-$ConvStatePath   = Join-Paths @($AntigravityRoot, "conversations")
+
+# Detect both Antigravity 2.0 (antigravity/) and Antigravity IDE (antigravity-ide/) surfaces
+$surfaces = [System.Collections.Generic.List[object]]::new()
+foreach ($surfName in @("antigravity", "antigravity-ide")) {
+    $surfRoot = Join-Paths @($GeminiRoot, $surfName)
+    if (Test-Path -LiteralPath $surfRoot) {
+        $surfaces.Add([PSCustomObject]@{
+            Name          = $surfName
+            Root          = $surfRoot
+            BrainPath     = (Join-Paths @($surfRoot, "brain"))
+            ConvStatePath = (Join-Paths @($surfRoot, "conversations"))
+        })
+    }
+}
 
 if (-not $Json) {
     Write-Host "`n=======================================================================================" -ForegroundColor DarkCyan
@@ -718,21 +746,23 @@ if (-not $Json) {
     }
 }
 
-# --- 2. Cross-analysis of conversations (Empty sessions auto-deleted without consuming KeepPerProject) ---
+# --- 2. Cross-analysis of conversations across antigravity/ (2.0) and antigravity-ide/ (IDE) ---
 
 $toDeleteBrain = [System.Collections.Generic.List[object]]::new()
 $keptConvs     = [System.Collections.Generic.List[object]]::new()
 $report        = [System.Collections.Generic.List[object]]::new()
 [int64]$brainFreedBytes = 0L
 
-if (Test-Path -LiteralPath $BrainPath) {
-    if (-not $Json) {
-        Write-Host (Msg "[2/4] Conversations by Project & Topic (KeepPerProject = $KeepPerProject, Empty sessions = DELETE):" `
-                        "[2/4] Conversations par Projet & Sujet (KeepPerProject = $KeepPerProject, Sessions vides = SUPPRIMER) :") -ForegroundColor Cyan
-    }
+if (-not $Json) {
+    Write-Host (Msg "[2/4] Conversations by Project & Topic (KeepPerProject = $KeepPerProject, Empty sessions = DELETE):" `
+                    "[2/4] Conversations par Projet & Sujet (KeepPerProject = $KeepPerProject, Sessions vides = SUPPRIMER) :") -ForegroundColor Cyan
+}
 
-    $allConvs = @(Get-ChildItem -LiteralPath $BrainPath -Directory | ForEach-Object {
-        Get-ConversationMetadata -ConvDir $_
+foreach ($surf in $surfaces) {
+    if (-not (Test-Path -LiteralPath $surf.BrainPath)) { continue }
+
+    $allConvs = @(Get-ChildItem -LiteralPath $surf.BrainPath -Directory | ForEach-Object {
+        Get-ConversationMetadata -ConvDir $_ -SurfaceName $surf.Name
     })
 
     if (-not [string]::IsNullOrWhiteSpace($ProjectFilter)) {
@@ -755,8 +785,6 @@ if (Test-Path -LiteralPath $BrainPath) {
             $isProtectedByAge = ($MaxAgeDays -gt 0) -and ($daysSinceActive -lt $MaxAgeDays)
 
             $shouldDelete = $false
-            # Rule 1: Empty sessions (if not active) are marked DELETE [EMPTY SESSION] without consuming KeepPerProject.
-            # Rule 2: Subagent runs ([Agent]) never steal one of the $KeepPerProject slots from real user conversations.
             if ($isActiveNow) {
                 $status = Msg "KEEP [ACTIVE]" "CONSERVER [ACTIF]"
                 $risk   = Msg "PROTECTED (active session)" "PROTEGE (session en cours)"
@@ -790,8 +818,8 @@ if (Test-Path -LiteralPath $BrainPath) {
 
             [int64]$pairedBytes = 0L
             $pairedItems = [System.Collections.Generic.List[string]]::new()
-            if (Test-Path -LiteralPath $ConvStatePath) {
-                $matchesInConv = @(Get-ChildItem -LiteralPath $ConvStatePath -Force -ErrorAction SilentlyContinue |
+            if (Test-Path -LiteralPath $surf.ConvStatePath) {
+                $matchesInConv = @(Get-ChildItem -LiteralPath $surf.ConvStatePath -Force -ErrorAction SilentlyContinue |
                     Where-Object { $_.BaseName -eq $item.Id -or $_.Name -eq $item.Id })
                 foreach ($m in $matchesInConv) {
                     $b = if ($m.PSIsContainer) { (Get-FolderStats -Path $m.FullName).Bytes } else { [int64]$m.Length }
@@ -802,6 +830,7 @@ if (Test-Path -LiteralPath $BrainPath) {
 
             $row = [PSCustomObject]@{
                 Status       = $status
+                Surface      = $item.Surface
                 Risk         = $risk
                 Project      = $item.ProjectName
                 Topic        = $item.Topic
@@ -827,64 +856,68 @@ if (Test-Path -LiteralPath $BrainPath) {
             }
         }
     }
+}
 
-    if (-not $Json) {
-        $sortedReport = $report | Sort-Object Project, LastActive -Descending
-        if ($isFr) {
-            $sortedReport | Select-Object `
-                @{N='Statut';E={$_.Status}}, `
-                @{N='Projet';E={$_.Project}}, `
-                @{N='Sujet';E={$_.Topic}}, `
-                @{N='DernierAct';E={$_.LastActive}}, `
-                @{N='TailleBrain';E={$_.BrainSize}}, `
-                @{N='TailleConvPb';E={$_.ConvPbSize}}, `
-                @{N='Risque';E={$_.Risk}}, `
-                Id | Format-Table -AutoSize
-        } else {
-            $sortedReport | Select-Object Status, Project, Topic, LastActive, BrainSize, ConvPbSize, Risk, Id | Format-Table -AutoSize
-        }
+if (-not $Json -and $report.Count -gt 0) {
+    $sortedReport = $report | Sort-Object Surface, Project, LastActive -Descending
+    if ($isFr) {
+        $sortedReport | Select-Object `
+            @{N='Statut';E={$_.Status}}, `
+            @{N='Projet';E={$_.Project}}, `
+            @{N='Sujet';E={$_.Topic}}, `
+            @{N='DernierAct';E={$_.LastActive}}, `
+            @{N='TailleBrain';E={$_.BrainSize}}, `
+            @{N='TailleConvPb';E={$_.ConvPbSize}}, `
+            @{N='Risque';E={$_.Risk}}, `
+            Id | Format-Table -AutoSize
+    } else {
+        $sortedReport | Select-Object Status, Project, Topic, LastActive, BrainSize, ConvPbSize, Risk, Id | Format-Table -AutoSize
     }
 }
 
-# --- 3. Detect orphaned conversations in 'conversations/' (missing from 'brain/') ---
+# --- 3. Detect orphaned conversations in 'conversations/' across antigravity/ and antigravity-ide/ ---
 
 $orphanConvItems = [System.Collections.Generic.List[object]]::new()
 [int64]$orphanConvBytes = 0L
 
-if ((Test-Path -LiteralPath $ConvStatePath) -and [string]::IsNullOrWhiteSpace($ProjectFilter)) {
-    $allBrainIds = @{}
-    if (Test-Path -LiteralPath $BrainPath) {
-        Get-ChildItem -LiteralPath $BrainPath -Directory | ForEach-Object { $allBrainIds[$_.Name] = $true }
-    }
-
+if ([string]::IsNullOrWhiteSpace($ProjectFilter)) {
     $orphanStatusLabel = if ($doOrphanPb) {
         Msg "DELETE [ORPHAN .pb]" "SUPPRIMER [ORPHELIN .pb]"
     } else {
         Msg "KEEP (-CleanOrphanPb)" "CONSERVER (-CleanOrphanPb)"
     }
 
-    Get-ChildItem -LiteralPath $ConvStatePath -Force -ErrorAction SilentlyContinue | ForEach-Object {
-        $idCandidate = if ($_.PSIsContainer) { $_.Name } else { $_.BaseName }
-        $minutesSinceMod = ($now - $_.LastWriteTime).TotalMinutes
-        if (-not $allBrainIds.ContainsKey($idCandidate) -and ($minutesSinceMod -gt $ActiveGuardMinutes)) {
-            $sz = if ($_.PSIsContainer) { (Get-FolderStats -Path $_.FullName).Bytes } else { [int64]$_.Length }
-            $orphanConvBytes += $sz
-            $orphanConvItems.Add([PSCustomObject]@{
-                Status       = $orphanStatusLabel
-                Risk         = (Msg "NONE (brain folder already deleted)" "AUCUN (brain deja supprime)")
-                File         = $_.Name
-                Size         = Format-Size -Bytes $sz
-                LastModified = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
-                FullPath     = $_.FullName
-                SizeBytes    = $sz
-            })
+    foreach ($surf in $surfaces) {
+        if (-not (Test-Path -LiteralPath $surf.ConvStatePath)) { continue }
+        $allBrainIds = @{}
+        if (Test-Path -LiteralPath $surf.BrainPath) {
+            Get-ChildItem -LiteralPath $surf.BrainPath -Directory | ForEach-Object { $allBrainIds[$_.Name] = $true }
+        }
+
+        Get-ChildItem -LiteralPath $surf.ConvStatePath -Force -ErrorAction SilentlyContinue | ForEach-Object {
+            $idCandidate = if ($_.PSIsContainer) { $_.Name } else { $_.BaseName }
+            $minutesSinceMod = ($now - $_.LastWriteTime).TotalMinutes
+            if (-not $allBrainIds.ContainsKey($idCandidate) -and ($minutesSinceMod -gt $ActiveGuardMinutes)) {
+                $sz = if ($_.PSIsContainer) { (Get-FolderStats -Path $_.FullName).Bytes } else { [int64]$_.Length }
+                $orphanConvBytes += $sz
+                $orphanConvItems.Add([PSCustomObject]@{
+                    Status       = $orphanStatusLabel
+                    Surface      = $surf.Name
+                    Risk         = (Msg "NONE (brain folder already deleted)" "AUCUN (brain deja supprime)")
+                    File         = "$($surf.Name)/conversations/$($_.Name)"
+                    Size         = Format-Size -Bytes $sz
+                    LastModified = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                    FullPath     = $_.FullName
+                    SizeBytes    = $sz
+                })
+            }
         }
     }
 
     if (-not $Json) {
         if ($orphanConvItems.Count -gt 0) {
-            Write-Host (Msg ("[3/4] {0} ORPHANED files/folders in 'antigravity/conversations/' (Total: {1}):" -f $orphanConvItems.Count, (Format-Size -Bytes $orphanConvBytes)) `
-                            ("[3/4] {0} fichiers/dossiers ORPHELINS dans 'antigravity/conversations/' (Total : {1}) :" -f $orphanConvItems.Count, (Format-Size -Bytes $orphanConvBytes))) -ForegroundColor Yellow
+            Write-Host (Msg ("[3/4] {0} ORPHANED files/folders in 'conversations/' across Antigravity surfaces (Total: {1}):" -f $orphanConvItems.Count, (Format-Size -Bytes $orphanConvBytes)) `
+                            ("[3/4] {0} fichiers/dossiers ORPHELINS dans 'conversations/' (Total : {1}) :" -f $orphanConvItems.Count, (Format-Size -Bytes $orphanConvBytes))) -ForegroundColor Yellow
             $topOrphans = $orphanConvItems | Sort-Object SizeBytes -Descending | Select-Object -First 10
             if ($isFr) {
                 $topOrphans | Select-Object `
@@ -901,113 +934,143 @@ if ((Test-Path -LiteralPath $ConvStatePath) -and [string]::IsNullOrWhiteSpace($P
                                 ("  ... et {0} autres fichiers .pb orphelins ({1})." -f ($orphanConvItems.Count - 10), $orphanStatusLabel)) -ForegroundColor DarkYellow
             }
         } else {
-            Write-Host (Msg "[3/4] 'antigravity/conversations/' is perfectly synchronized with 'brain/' (0 orphans)." `
-                            "[3/4] 'antigravity/conversations/' est parfaitement synchronise avec 'brain/' (0 orphelin).") -ForegroundColor Green
+            Write-Host (Msg "[3/4] 'conversations/' is perfectly synchronized with 'brain/' (0 orphans)." `
+                            "[3/4] 'conversations/' est parfaitement synchronise avec 'brain/' (0 orphelin).") -ForegroundColor Green
         }
     }
 }
 
-# --- 4. Modular Targets (-CleanScratch, -CleanPlayground, -CleanBrowser, -CleanTrackers, -CleanTmpAndLogs) ---
+# --- 4. Modular Targets (-CleanScratch, -CleanPlayground, -CleanBrowser, -CleanTrackers, -CleanTmpAndLogs, -CleanBackup) ---
 
 $modularTargets = [System.Collections.Generic.List[object]]::new()
-$cacheSpecs = @(
+$cacheSpecs = [System.Collections.Generic.List[hashtable]]::new()
+
+foreach ($surf in $surfaces) {
+    $sn = $surf.Name
+    $sr = $surf.Root
+    $cacheSpecs.AddRange(@(
+        @{
+            Category    = "scratch"
+            Label       = (Msg "Temp workspaces '$sn/scratch'" "Espaces temporaires '$sn/scratch'")
+            Path        = (Join-Paths @($sr, "scratch"))
+            Enabled     = $doScratch
+            Switch      = "-CleanScratch"
+            Risk        = (Msg "LOW (temp folders outside projects)" "FAIBLE (dossiers temp hors-projet)")
+            KeepRootDir = $true
+        },
+        @{
+            Category    = "playground"
+            Label       = (Msg "Sandbox projects '$sn/playground'" "Projets bacs a sable '$sn/playground'")
+            Path        = (Join-Paths @($sr, "playground"))
+            Enabled     = $doPlayground
+            Switch      = "-CleanPlayground"
+            Risk        = (Msg "MODERATE (deletes unexported Playground prototypes)" "MODERE (efface les prototypes Playground non exportes)")
+            KeepRootDir = $true
+        },
+        @{
+            Category    = "browser"
+            Label       = (Msg "Browser captures '$sn/browser_recordings'" "Captures '$sn/browser_recordings'")
+            Path        = (Join-Paths @($sr, "browser_recordings"))
+            Enabled     = $doBrowser
+            Switch      = "-CleanBrowser"
+            Risk        = (Msg "NONE (old Playwright captures/videos)" "AUCUN (anciennes captures/videos Playwright)")
+            KeepRootDir = $true
+        },
+        @{
+            Category    = "trackers"
+            Label       = (Msg "Indexing '$sn/implicit'" "Indexation '$sn/implicit'")
+            Path        = (Join-Paths @($sr, "implicit"))
+            Enabled     = $doTrackers
+            Switch      = "-CleanTrackers"
+            Risk        = (Msg "LOW (rebuilt automatically)" "FAIBLE (reconstruit automatiquement)")
+            KeepRootDir = $true
+        },
+        @{
+            Category    = "trackers"
+            Label       = (Msg "Snapshots '$sn/code_tracker'" "Snapshots '$sn/code_tracker'")
+            Path        = (Join-Paths @($sr, "code_tracker"))
+            Enabled     = $doTrackers
+            Switch      = "-CleanTrackers"
+            Risk        = (Msg "LOW (rebuilt automatically)" "FAIBLE (reconstruit automatiquement)")
+            KeepRootDir = $true
+        },
+        @{
+            Category    = "trackers"
+            Label       = (Msg "Context '$sn/context_state'" "Contexte '$sn/context_state'")
+            Path        = (Join-Paths @($sr, "context_state"))
+            Enabled     = $doTrackers
+            Switch      = "-CleanTrackers"
+            Risk        = (Msg "LOW (rebuilt automatically)" "FAIBLE (reconstruit automatiquement)")
+            KeepRootDir = $true
+        },
+        @{
+            Category    = "tmpLogs"
+            Label       = (Msg "Logs '$sn/log'" "Journaux '$sn/log'")
+            Path        = (Join-Paths @($sr, "log"))
+            Enabled     = $doTmpAndLogs
+            Switch      = "-CleanTmpAndLogs"
+            Risk        = (Msg "NONE (application logs)" "AUCUN (logs applicatifs)")
+            KeepRootDir = $true
+        },
+        @{
+            Category    = "tmpLogs"
+            Label       = (Msg "Cache '$sn/cache'" "Cache '$sn/cache'")
+            Path        = (Join-Paths @($sr, "cache"))
+            Enabled     = $doTmpAndLogs
+            Switch      = "-CleanTmpAndLogs"
+            Risk        = (Msg "NONE (technical cache)" "AUCUN (cache technique)")
+            KeepRootDir = $true
+        },
+        @{
+            Category    = "tmpLogs"
+            Label       = (Msg "Crash reports '$sn/crashes'" "Rapports de crash '$sn/crashes'")
+            Path        = (Join-Paths @($sr, "crashes"))
+            Enabled     = $doTmpAndLogs
+            Switch      = "-CleanTmpAndLogs"
+            Risk        = (Msg "NONE (crash dumps)" "AUCUN (crash dumps)")
+            KeepRootDir = $true
+        }
+    ))
+}
+
+$cacheSpecs.AddRange(@(
     @{
-        Category = "scratch"
-        Label    = (Msg "Temp workspaces 'antigravity/scratch'" "Espaces temporaires 'antigravity/scratch'")
-        Path     = (Join-Paths @($AntigravityRoot, "scratch"))
-        Enabled  = $doScratch
-        Switch   = "-CleanScratch"
-        Risk     = (Msg "LOW (temp folders outside projects)" "FAIBLE (dossiers temp hors-projet)")
+        Category    = "tmpLogs"
+        Label       = (Msg "Global temp '~/.gemini/tmp'" "Cache global '~/.gemini/tmp'")
+        Path        = (Join-Paths @($GeminiRoot, "tmp"))
+        Enabled     = $doTmpAndLogs
+        Switch      = "-CleanTmpAndLogs"
+        Risk        = (Msg "NONE (temporary files)" "AUCUN (fichiers temporaires)")
+        KeepRootDir = $true
     },
     @{
-        Category = "playground"
-        Label    = (Msg "Sandbox projects 'antigravity/playground'" "Projets bacs a sable 'antigravity/playground'")
-        Path     = (Join-Paths @($AntigravityRoot, "playground"))
-        Enabled  = $doPlayground
-        Switch   = "-CleanPlayground"
-        Risk     = (Msg "MODERATE (deletes unexported Playground prototypes)" "MODERE (efface les prototypes Playground non exportes)")
+        Category    = "tmpLogs"
+        Label       = (Msg "Global cache '~/.gemini/cache'" "Cache global '~/.gemini/cache'")
+        Path        = (Join-Paths @($GeminiRoot, "cache"))
+        Enabled     = $doTmpAndLogs
+        Switch      = "-CleanTmpAndLogs"
+        Risk        = (Msg "NONE (global cache)" "AUCUN (cache global)")
+        KeepRootDir = $true
     },
     @{
-        Category = "browser"
-        Label    = (Msg "Browser captures 'antigravity/browser_recordings'" "Captures 'antigravity/browser_recordings'")
-        Path     = (Join-Paths @($AntigravityRoot, "browser_recordings"))
-        Enabled  = $doBrowser
-        Switch   = "-CleanBrowser"
-        Risk     = (Msg "NONE (old Playwright captures/videos)" "AUCUN (anciennes captures/videos Playwright)")
+        Category    = "tmpLogs"
+        Label       = (Msg "Global logs '~/.gemini/logs'" "Journaux globaux '~/.gemini/logs'")
+        Path        = (Join-Paths @($GeminiRoot, "logs"))
+        Enabled     = $doTmpAndLogs
+        Switch      = "-CleanTmpAndLogs"
+        Risk        = (Msg "NONE (global logs)" "AUCUN (journaux globaux)")
+        KeepRootDir = $true
     },
     @{
-        Category = "trackers"
-        Label    = (Msg "Indexing 'antigravity/implicit'" "Indexation 'antigravity/implicit'")
-        Path     = (Join-Paths @($AntigravityRoot, "implicit"))
-        Enabled  = $doTrackers
-        Switch   = "-CleanTrackers"
-        Risk     = (Msg "LOW (rebuilt automatically)" "FAIBLE (reconstruit automatiquement)")
-    },
-    @{
-        Category = "trackers"
-        Label    = (Msg "Snapshots 'antigravity/code_tracker'" "Snapshots 'antigravity/code_tracker'")
-        Path     = (Join-Paths @($AntigravityRoot, "code_tracker"))
-        Enabled  = $doTrackers
-        Switch   = "-CleanTrackers"
-        Risk     = (Msg "LOW (rebuilt automatically)" "FAIBLE (reconstruit automatiquement)")
-    },
-    @{
-        Category = "trackers"
-        Label    = (Msg "Context 'antigravity/context_state'" "Contexte 'antigravity/context_state'")
-        Path     = (Join-Paths @($AntigravityRoot, "context_state"))
-        Enabled  = $doTrackers
-        Switch   = "-CleanTrackers"
-        Risk     = (Msg "LOW (rebuilt automatically)" "FAIBLE (reconstruit automatiquement)")
-    },
-    @{
-        Category = "tmpLogs"
-        Label    = (Msg "Logs 'antigravity/log'" "Journaux 'antigravity/log'")
-        Path     = (Join-Paths @($AntigravityRoot, "log"))
-        Enabled  = $doTmpAndLogs
-        Switch   = "-CleanTmpAndLogs"
-        Risk     = (Msg "NONE (application logs)" "AUCUN (logs applicatifs)")
-    },
-    @{
-        Category = "tmpLogs"
-        Label    = (Msg "Cache 'antigravity/cache'" "Cache 'antigravity/cache'")
-        Path     = (Join-Paths @($AntigravityRoot, "cache"))
-        Enabled  = $doTmpAndLogs
-        Switch   = "-CleanTmpAndLogs"
-        Risk     = (Msg "NONE (technical cache)" "AUCUN (cache technique)")
-    },
-    @{
-        Category = "tmpLogs"
-        Label    = (Msg "Crash reports 'antigravity/crashes'" "Rapports de crash 'antigravity/crashes'")
-        Path     = (Join-Paths @($AntigravityRoot, "crashes"))
-        Enabled  = $doTmpAndLogs
-        Switch   = "-CleanTmpAndLogs"
-        Risk     = (Msg "NONE (crash dumps)" "AUCUN (crash dumps)")
-    },
-    @{
-        Category = "tmpLogs"
-        Label    = (Msg "Global temp '~/.gemini/tmp'" "Cache global '~/.gemini/tmp'")
-        Path     = (Join-Paths @($GeminiRoot, "tmp"))
-        Enabled  = $doTmpAndLogs
-        Switch   = "-CleanTmpAndLogs"
-        Risk     = (Msg "NONE (temporary files)" "AUCUN (fichiers temporaires)")
-    },
-    @{
-        Category = "tmpLogs"
-        Label    = (Msg "Global cache '~/.gemini/cache'" "Cache global '~/.gemini/cache'")
-        Path     = (Join-Paths @($GeminiRoot, "cache"))
-        Enabled  = $doTmpAndLogs
-        Switch   = "-CleanTmpAndLogs"
-        Risk     = (Msg "NONE (global cache)" "AUCUN (cache global)")
-    },
-    @{
-        Category = "tmpLogs"
-        Label    = (Msg "Global logs '~/.gemini/logs'" "Journaux globaux '~/.gemini/logs'")
-        Path     = (Join-Paths @($GeminiRoot, "logs"))
-        Enabled  = $doTmpAndLogs
-        Switch   = "-CleanTmpAndLogs"
-        Risk     = (Msg "NONE (global logs)" "AUCUN (journaux globaux)")
+        Category    = "backup"
+        Label       = (Msg "Migration backup '~/.gemini/antigravity-backup'" "Archive migration '~/.gemini/antigravity-backup'")
+        Path        = (Join-Paths @($GeminiRoot, "antigravity-backup"))
+        Enabled     = $doBackup
+        Switch      = "-CleanBackup"
+        Risk        = (Msg "LOW (legacy migration backup snapshot)" "FAIBLE (ancienne archive de migration)")
+        KeepRootDir = $false
     }
-)
+))
 
 foreach ($spec in $cacheSpecs) {
     if (Test-Path -LiteralPath $spec.Path) {
@@ -1028,7 +1091,7 @@ foreach ($spec in $cacheSpecs) {
                 Enabled     = $spec.Enabled
                 SizeBytes   = $stats.Bytes
                 Path        = $spec.Path
-                KeepRootDir = $true
+                KeepRootDir = $spec.KeepRootDir
             })
         }
     }
@@ -1079,31 +1142,32 @@ if (-not $Json -and $modularTargets.Count -gt 0) {
         $sortedMod | Select-Object Status, Target, Files, Size, Risk | Format-Table -AutoSize
     }
 
-    # Show inner contents of scratch/ and playground/ for full transparency before deletion
-    foreach ($heavyDirName in @("scratch", "playground")) {
-        $hp = Join-Paths @($AntigravityRoot, $heavyDirName)
-        if (Test-Path -LiteralPath $hp) {
-            $subDirs = @(Get-ChildItem -LiteralPath $hp -Force -ErrorAction SilentlyContinue)
-            if ($subDirs.Count -gt 0) {
-                Write-Host (Msg "  Inner contents of 'antigravity/$heavyDirName' ($($subDirs.Count) item(s)):" `
-                                "  Detail du contenu de 'antigravity/$heavyDirName' ($($subDirs.Count) element(s)) :") -ForegroundColor DarkCyan
-                $subReport = foreach ($sd in $subDirs) {
-                    $sz = if ($sd.PSIsContainer) { (Get-FolderStats -Path $sd.FullName).Bytes } else { [int64]$sd.Length }
-                    [PSCustomObject]@{
-                        Subfolder    = "  |-- $($sd.Name)"
-                        Size         = Format-Size -Bytes $sz
-                        LastModified = $sd.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
-                        SizeBytes    = $sz
+    foreach ($surf in $surfaces) {
+        foreach ($heavyDirName in @("scratch", "playground")) {
+            $hp = Join-Paths @($surf.Root, $heavyDirName)
+            if (Test-Path -LiteralPath $hp) {
+                $subDirs = @(Get-ChildItem -LiteralPath $hp -Force -ErrorAction SilentlyContinue)
+                if ($subDirs.Count -gt 0) {
+                    Write-Host (Msg "  Inner contents of '$($surf.Name)/$heavyDirName' ($($subDirs.Count) item(s)):" `
+                                    "  Detail du contenu de '$($surf.Name)/$heavyDirName' ($($subDirs.Count) element(s)) :") -ForegroundColor DarkCyan
+                    $subReport = foreach ($sd in $subDirs) {
+                        $sz = if ($sd.PSIsContainer) { (Get-FolderStats -Path $sd.FullName).Bytes } else { [int64]$sd.Length }
+                        [PSCustomObject]@{
+                            Subfolder    = "  |-- $($sd.Name)"
+                            Size         = Format-Size -Bytes $sz
+                            LastModified = $sd.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                            SizeBytes    = $sz
+                        }
                     }
-                }
-                $topSubs = $subReport | Sort-Object SizeBytes -Descending | Select-Object -First 8
-                if ($isFr) {
-                    $topSubs | Select-Object `
-                        @{N='SousDossier';E={$_.Subfolder}}, `
-                        @{N='Taille';E={$_.Size}}, `
-                        @{N='DernierMod';E={$_.LastModified}} | Format-Table -AutoSize
-                } else {
-                    $topSubs | Select-Object Subfolder, Size, LastModified | Format-Table -AutoSize
+                    $topSubs = $subReport | Sort-Object SizeBytes -Descending | Select-Object -First 8
+                    if ($isFr) {
+                        $topSubs | Select-Object `
+                            @{N='SousDossier';E={$_.Subfolder}}, `
+                            @{N='Taille';E={$_.Size}}, `
+                            @{N='DernierMod';E={$_.LastModified}} | Format-Table -AutoSize
+                    } else {
+                        $topSubs | Select-Object Subfolder, Size, LastModified | Format-Table -AutoSize
+                    }
                 }
             }
         }
@@ -1123,6 +1187,7 @@ $activeModularTargets = @($modularTargets | Where-Object { $_.Enabled })
 [int64]$browserBytes    = Get-TotalBytes -Items @($modularTargets | Where-Object { $_.Category -eq "browser" }) -Property "SizeBytes"
 [int64]$trackersBytes   = Get-TotalBytes -Items @($modularTargets | Where-Object { $_.Category -eq "trackers" }) -Property "SizeBytes"
 [int64]$tmpLogsBytes    = Get-TotalBytes -Items @($modularTargets | Where-Object { $_.Category -eq "tmpLogs" }) -Property "SizeBytes"
+[int64]$backupBytes     = Get-TotalBytes -Items @($modularTargets | Where-Object { $_.Category -eq "backup" }) -Property "SizeBytes"
 
 # --- Risk Guide & Complete Summary ---
 
@@ -1156,19 +1221,23 @@ if (-not $Json) {
         (Format-Size -Bytes $trackersBytes), `
         $(if ($doTrackers) { $selLabel } else { $optLabel }), `
         (Msg "LOW RISK" "RISQUE FAIBLE")) -ForegroundColor $(if ($doTrackers) { "Yellow" } else { "Gray" })
-    Write-Host ("  6. -CleanScratch       : {0,10} | {1} (antigravity/scratch)        [{2}]" -f `
+    Write-Host ("  6. -CleanScratch       : {0,10} | {1} (scratch workspaces)         [{2}]" -f `
         (Format-Size -Bytes $scratchBytes), `
         $(if ($doScratch) { $selLabel } else { $optLabel }), `
         (Msg "LOW RISK" "RISQUE FAIBLE")) -ForegroundColor $(if ($doScratch) { "Yellow" } else { "Gray" })
-    Write-Host ("  7. -CleanPlayground    : {0,10} | {1} (antigravity/playground)     [{2}]" -f `
+    Write-Host ("  7. -CleanPlayground    : {0,10} | {1} (playground prototypes)      [{2}]" -f `
         (Format-Size -Bytes $playgroundBytes), `
         $(if ($doPlayground) { $selLabel } else { $optLabel }), `
         (Msg "MODERATE RISK" "RISQUE MODERE")) -ForegroundColor $(if ($doPlayground) { "DarkYellow" } else { "Gray" })
+    Write-Host ("  8. -CleanBackup        : {0,10} | {1} (antigravity-backup archive) [{2}]" -f `
+        (Format-Size -Bytes $backupBytes), `
+        $(if ($doBackup) { $selLabel } else { $optLabel }), `
+        (Msg "LOW RISK" "RISQUE FAIBLE")) -ForegroundColor $(if ($doBackup) { "Yellow" } else { "Gray" })
     Write-Host "---------------------------------------------------------------------------------------" -ForegroundColor DarkCyan
     Write-Host (Msg ("  TOTAL TO BE DELETED (Current mode) : {0}" -f (Format-Size -Bytes $totalPlannedBytes)) `
                     ("  TOTAL QUI SERA SUPPRIME (Mode actuel)     : {0}" -f (Format-Size -Bytes $totalPlannedBytes))) -ForegroundColor Green
-    Write-Host (Msg ("  TOTAL TO BE DELETED (With -DeepClean): {0} (+ {1} of caches)" -f (Format-Size -Bytes $totalDeepCleanBytes), (Format-Size -Bytes $allModularBytes)) `
-                    ("  TOTAL QUI SERA SUPPRIME (Avec -DeepClean) : {0} (+ {1} de caches)" -f (Format-Size -Bytes $totalDeepCleanBytes), (Format-Size -Bytes $allModularBytes))) -ForegroundColor Magenta
+    Write-Host (Msg ("  TOTAL TO BE DELETED (With -DeepClean): {0} (+ {1} of caches/backups)" -f (Format-Size -Bytes $totalDeepCleanBytes), (Format-Size -Bytes $allModularBytes)) `
+                    ("  TOTAL QUI SERA SUPPRIME (Avec -DeepClean) : {0} (+ {1} de caches/backups)" -f (Format-Size -Bytes $totalDeepCleanBytes), (Format-Size -Bytes $allModularBytes))) -ForegroundColor Magenta
     Write-Host "=======================================================================================" -ForegroundColor DarkCyan
 }
 
@@ -1177,14 +1246,14 @@ if (-not $Json) {
 if (-not $Execute) {
     if ($Json) {
         [PSCustomObject]@{
-            mode                = "dry-run"
-            geminiRoot          = $GeminiRoot
-            keepPerProject      = $KeepPerProject
-            totalPlannedBytes   = $totalPlannedBytes
+            mode                  = "dry-run"
+            geminiRoot            = $GeminiRoot
+            keepPerProject        = $KeepPerProject
+            totalPlannedBytes     = $totalPlannedBytes
             totalPlannedFormatted = (Format-Size -Bytes $totalPlannedBytes)
-            totalDeepCleanBytes = $totalDeepCleanBytes
+            totalDeepCleanBytes   = $totalDeepCleanBytes
             totalDeepCleanFormatted = (Format-Size -Bytes $totalDeepCleanBytes)
-            categories          = [PSCustomObject]@{
+            categories            = [PSCustomObject]@{
                 conversationsBytes = $brainFreedBytes
                 orphanPbBytes      = $orphanConvBytes
                 tmpAndLogsBytes    = $tmpLogsBytes
@@ -1192,10 +1261,11 @@ if (-not $Execute) {
                 trackersBytes      = $trackersBytes
                 scratchBytes       = $scratchBytes
                 playgroundBytes    = $playgroundBytes
+                backupBytes        = $backupBytes
             }
-            conversations       = $report
-            orphanPbFiles       = $orphanConvItems
-            modularTargets      = $modularTargets
+            conversations         = $report
+            orphanPbFiles         = $orphanConvItems
+            modularTargets        = $modularTargets
         } | ConvertTo-Json -Depth 6
         exit 0
     }
@@ -1207,11 +1277,11 @@ if (-not $Execute) {
     Write-Host (Msg "  # A. 100% RISK-FREE Cleanup (Orphaned .pb + Tmp/Logs + Browser Captures):" `
                     "  # A. Nettoyage 100% SANS RISQUE (Orphelins .pb + Tmp/Logs + Captures Browser) :") -ForegroundColor Gray
     Write-Host "  ./clean-antigravity.ps1 -CleanOrphanPb -CleanTmpAndLogs -CleanBrowser -Execute" -ForegroundColor Green
-    Write-Host (Msg "  # B. Standard Cleanup + Scratch (Conversations + Orphaned .pb + Scratch):" `
-                    "  # B. Nettoyage Standard + Scratch (Conversations + Orphelins .pb + Scratch) :") -ForegroundColor Gray
-    Write-Host "  ./clean-antigravity.ps1 -CleanConversations -CleanScratch -Execute" -ForegroundColor Green
-    Write-Host (Msg "  # C. Full Deep Cleanup (Include everything, including Playground):" `
-                    "  # C. Nettoyage Complet (Tout inclure, y compris Playground) :") -ForegroundColor Gray
+    Write-Host (Msg "  # B. Standard Cleanup + Scratch + Legacy Migration Backup:" `
+                    "  # B. Nettoyage Standard + Scratch + Sauvegarde de migration (antigravity-backup) :") -ForegroundColor Gray
+    Write-Host "  ./clean-antigravity.ps1 -CleanConversations -CleanScratch -CleanBackup -Execute" -ForegroundColor Green
+    Write-Host (Msg "  # C. Full Deep Cleanup (Include everything across Antigravity 2.0 & IDE):" `
+                    "  # C. Nettoyage Complet (Tout inclure sur Antigravity 2.0 & IDE) :") -ForegroundColor Gray
     Write-Host "  ./clean-antigravity.ps1 -DeepClean -Execute" -ForegroundColor Green
     exit 0
 }
@@ -1219,13 +1289,13 @@ if (-not $Execute) {
 if ($totalPlannedBytes -eq 0) {
     if ($Json) {
         [PSCustomObject]@{
-            mode               = "execute"
-            geminiRoot         = $GeminiRoot
-            totalPlannedBytes  = 0L
-            totalFreedBytes    = 0L
+            mode                = "execute"
+            geminiRoot          = $GeminiRoot
+            totalPlannedBytes   = 0L
+            totalFreedBytes     = 0L
             totalFreedFormatted = (Format-Size -Bytes 0L)
-            filesDeleted       = 0
-            message            = (Msg "No items selected to delete." "Aucun element selectionne a supprimer.")
+            filesDeleted        = 0
+            message             = (Msg "No items selected to delete." "Aucun element selectionne a supprimer.")
         } | ConvertTo-Json -Depth 4
     } else {
         Write-Host (Msg "`nNo items selected to delete (0 B)." "`nAucun element selectionne a supprimer (0 o).") -ForegroundColor Green
@@ -1286,9 +1356,9 @@ if ($doConversations -and $toDeleteBrain.Count -gt 0) {
 
         if (-not $Json) {
             $shortId = if ($item.Id.Length -ge 8) { $item.Id.Substring(0, 8) } else { $item.Id }
-            Write-Host (Msg ("  [Conversation] {0} | Project: {1,-16} | Brain: {2,-9} + .pb: {3,-9} => Freed: {4}" -f `
+            Write-Host (Msg ("  [Conversation] {0} | Project: {1,-22} | Brain: {2,-9} + .pb: {3,-9} => Freed: {4}" -f `
                 $shortId, $item.Project, $item.BrainSize, $item.ConvPbSize, (Format-Size -Bytes $freedB)) `
-                            ("  [Conversation] {0} | Projet: {1,-16} | Brain: {2,-9} + .pb: {3,-9} => Libere : {4}" -f `
+                            ("  [Conversation] {0} | Projet: {1,-22} | Brain: {2,-9} + .pb: {3,-9} => Libere : {4}" -f `
                 $shortId, $item.Project, $item.BrainSize, $item.ConvPbSize, (Format-Size -Bytes $freedB))) -ForegroundColor Yellow
         }
     }
@@ -1324,9 +1394,9 @@ if ($doOrphanPb -and $orphanConvItems.Count -gt 0) {
         $lockNote = if ($orphLockedCount -gt 0) {
             Msg " ($orphLockedCount locked by IDE)" " ($orphLockedCount verrouille(s) par l'IDE)"
         } else { "" }
-        Write-Host (Msg ("  [Orphan .pb]   {0}/{1} files deleted in antigravity/conversations/ => Freed: {2}{3}" -f `
+        Write-Host (Msg ("  [Orphan .pb]   {0}/{1} files deleted in conversations/ => Freed: {2}{3}" -f `
             $orphDeletedCount, $orphanConvItems.Count, (Format-Size -Bytes $orphActualFreed), $lockNote) `
-                        ("  [Orphelins .pb] {0}/{1} fichiers supprimes dans antigravity/conversations/ => Libere : {2}{3}" -f `
+                        ("  [Orphelins .pb] {0}/{1} fichiers supprimes dans conversations/ => Libere : {2}{3}" -f `
             $orphDeletedCount, $orphanConvItems.Count, (Format-Size -Bytes $orphActualFreed), $lockNote)) -ForegroundColor Yellow
     }
 
@@ -1365,9 +1435,9 @@ foreach ($dt in $activeModularTargets) {
         } else {
             Msg " [100% empty]" " [100% vide]"
         }
-        Write-Host (Msg ("  [Modular]       {0,-46} | {1,5} file(s)    | Before: {2,9} -> After: {3,8} => Freed: {4}{5}" -f `
+        Write-Host (Msg ("  [Modular]       {0,-48} | {1,5} file(s)    | Before: {2,9} -> After: {3,8} => Freed: {4}{5}" -f `
             $dt.Target, $deletedFiles, (Format-Size -Bytes $beforeBytes), (Format-Size -Bytes $afterBytes), (Format-Size -Bytes $freedBytes), $lockMsg) `
-                        ("  [DeepClean]     {0,-46} | {1,5} fichier(s) | Avant: {2,9} -> Apres: {3,8} => Libere : {4}{5}" -f `
+                        ("  [DeepClean]     {0,-48} | {1,5} fichier(s) | Avant: {2,9} -> Apres: {3,8} => Libere : {4}{5}" -f `
             $dt.Target, $deletedFiles, (Format-Size -Bytes $beforeBytes), (Format-Size -Bytes $afterBytes), (Format-Size -Bytes $freedBytes), $lockMsg)) -ForegroundColor Magenta
     }
 
@@ -1388,14 +1458,14 @@ foreach ($dt in $activeModularTargets) {
 
 if ($Json) {
     [PSCustomObject]@{
-        mode                = "execute"
-        geminiRoot          = $GeminiRoot
-        totalPlannedBytes   = $totalPlannedBytes
+        mode                  = "execute"
+        geminiRoot            = $GeminiRoot
+        totalPlannedBytes     = $totalPlannedBytes
         totalPlannedFormatted = (Format-Size -Bytes $totalPlannedBytes)
-        totalFreedBytes     = $totalActuallyFreed
-        totalFreedFormatted = (Format-Size -Bytes $totalActuallyFreed)
-        filesDeleted        = $totalFilesDeleted
-        summary             = $executionSummary
+        totalFreedBytes       = $totalActuallyFreed
+        totalFreedFormatted   = (Format-Size -Bytes $totalActuallyFreed)
+        filesDeleted          = $totalFilesDeleted
+        summary               = $executionSummary
     } | ConvertTo-Json -Depth 5
     exit 0
 }
@@ -1418,7 +1488,7 @@ Write-Host (Msg ("  PLANNED SPACE TO DELETE        : {0}" -f (Format-Size -Bytes
 Write-Host (Msg ("  ACTUAL SPACE FREED             : {0} ({1} files/sessions deleted)" -f (Format-Size -Bytes $totalActuallyFreed), $totalFilesDeleted) `
                 ("  ESPACE REELLEMENT LIBERE       : {0} ({1} fichiers/sessions supprimes)" -f (Format-Size -Bytes $totalActuallyFreed), $totalFilesDeleted)) -ForegroundColor Green
 if ($totalPlannedBytes -gt $totalActuallyFreed) {
-    Write-Host (Msg ("  DIFFERENCE (Locked files)      : {0} (currently in use by Antigravity IDE)" -f (Format-Size -Bytes ($totalPlannedBytes - $totalActuallyFreed))) `
-                    ("  ECART (Fichiers verrouilles)   : {0} (en cours d'utilisation par l'IDE Antigravity)" -f (Format-Size -Bytes ($totalPlannedBytes - $totalActuallyFreed)))) -ForegroundColor Yellow
+    Write-Host (Msg ("  DIFFERENCE (Locked files)      : {0} (currently in use by Antigravity)" -f (Format-Size -Bytes ($totalPlannedBytes - $totalActuallyFreed))) `
+                    ("  ECART (Fichiers verrouilles)   : {0} (en cours d'utilisation par Antigravity)" -f (Format-Size -Bytes ($totalPlannedBytes - $totalActuallyFreed)))) -ForegroundColor Yellow
 }
 Write-Host "=======================================================================================" -ForegroundColor DarkCyan

@@ -3,7 +3,8 @@
 """
 Antigravity & Gemini Cleaner (agy-clean)
 Cross-platform directory tree audit, risk assessment, and modular cleanup
-for ~/.gemini and ~/.gemini/antigravity (Windows, macOS, Linux).
+for ~/.gemini, ~/.gemini/antigravity (Antigravity 2.0), ~/.gemini/antigravity-ide (Antigravity IDE),
+and ~/.gemini/antigravity-backup (Windows, macOS, Linux).
 
 Zero external dependencies (Python 3.8+ standard library only).
 Supports both POSIX (--deep-clean --execute --force) and PowerShell (-DeepClean -Execute -Force) flags,
@@ -41,7 +42,6 @@ def _enable_ansi() -> bool:
         try:
             import ctypes
             kernel32 = ctypes.windll.kernel32
-            # Enable ENABLE_VIRTUAL_TERMINAL_PROCESSING (0x0004)
             handle = kernel32.GetStdHandle(-11)
             mode = ctypes.c_ulong()
             if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
@@ -237,7 +237,6 @@ def resolve_project_root_from_candidate(candidate: str) -> str:
     except OSError:
         pass
 
-    # Fallback heuristic for deleted/unmounted projects
     m1 = re.match(r"^([a-zA-Z]:/Users/[^/]+/(?:Dev|Projects|Repos|Workspace|Code|Documents|Desktop)/[^/]+/[^/]+)", norm_slash)
     if m1:
         return m1.group(1).replace("/", "\\") if os.name == "nt" else m1.group(1)
@@ -253,7 +252,7 @@ def resolve_project_root_from_candidate(candidate: str) -> str:
     return ""
 
 
-def get_conversation_metadata(conv_dir: Path, is_fr: bool) -> Dict[str, Any]:
+def get_conversation_metadata(conv_dir: Path, is_fr: bool, surface_name: str = "antigravity") -> Dict[str, Any]:
     transcript = conv_dir / ".system_generated" / "logs" / "transcript.jsonl"
     project_path = ""
     topic = ""
@@ -367,6 +366,8 @@ def get_conversation_metadata(conv_dir: Path, is_fr: bool) -> Dict[str, Any]:
         project_name = "[Global / Hors-Projet]" if is_fr else "[Global / Unscoped]"
     else:
         project_name = Path(project_path).name
+    if surface_name == "antigravity-ide":
+        project_name = f"{project_name} [IDE]"
 
     try:
         mtime = transcript.stat().st_mtime if transcript.is_file() else conv_dir.stat().st_mtime
@@ -377,8 +378,9 @@ def get_conversation_metadata(conv_dir: Path, is_fr: bool) -> Dict[str, Any]:
 
     return {
         "Id": conv_dir.name,
+        "Surface": surface_name,
         "ProjectName": project_name,
-        "ProjectPath": "Global" if is_global else project_path,
+        "ProjectPath": f"Global::{surface_name}" if is_global else f"{project_path}::{surface_name}",
         "ProjectExists": project_exists,
         "Topic": topic,
         "IsEmptySession": is_empty_session,
@@ -404,6 +406,7 @@ def normalize_argv(argv: List[str]) -> List[str]:
         "-cleantrackers": "--clean-trackers",
         "-cleanscratch": "--clean-scratch",
         "-cleanplayground": "--clean-playground",
+        "-cleanbackup": "--clean-backup",
         "-deepclean": "--deep-clean",
         "-pruneorphanprojects": "--prune-orphan-projects",
         "-projectfilter": "--project-filter",
@@ -435,12 +438,13 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--max-age-days", type=int, default=0, help="Protect conversations active within the last N days (Default: 0).")
     parser.add_argument("--active-guard-minutes", type=int, default=15, help="Protect sessions modified within the last N minutes (Default: 15).")
     parser.add_argument("--clean-conversations", action="store_true", help="Clean over-quota conversations, empty sessions, and paired .pb files.")
-    parser.add_argument("--clean-orphan-pb", action="store_true", help="Clean orphaned .pb files in antigravity/conversations/ (Risk: NONE).")
+    parser.add_argument("--clean-orphan-pb", action="store_true", help="Clean orphaned .pb files in conversations/ (Risk: NONE).")
     parser.add_argument("--clean-tmp-and-logs", action="store_true", help="Clean tmp, cache, log, crashes, and raw step/task logs (Risk: NONE).")
-    parser.add_argument("--clean-browser", action="store_true", help="Clean antigravity/browser_recordings (Risk: NONE).")
+    parser.add_argument("--clean-browser", action="store_true", help="Clean browser_recordings (Risk: NONE).")
     parser.add_argument("--clean-trackers", action="store_true", help="Clean code_tracker, implicit, and context_state (Risk: LOW).")
-    parser.add_argument("--clean-scratch", action="store_true", help="Clean antigravity/scratch (Risk: LOW).")
-    parser.add_argument("--clean-playground", action="store_true", help="Clean antigravity/playground (Risk: MODERATE).")
+    parser.add_argument("--clean-scratch", action="store_true", help="Clean scratch workspaces (Risk: LOW).")
+    parser.add_argument("--clean-playground", action="store_true", help="Clean playground sandbox projects (Risk: MODERATE).")
+    parser.add_argument("--clean-backup", action="store_true", help="Clean ~/.gemini/antigravity-backup legacy migration archive (Risk: LOW).")
     parser.add_argument("--deep-clean", action="store_true", help="Enable all cleanup options simultaneously.")
     parser.add_argument("--prune-orphan-projects", action="store_true", help="Also delete conversations whose project folder no longer exists on disk.")
     parser.add_argument("--project-filter", type=str, default="", help="Filter conversations by project name or path (regex).")
@@ -478,6 +482,7 @@ def main() -> int:
         args.clean_trackers,
         args.clean_scratch,
         args.clean_playground,
+        args.clean_backup,
         args.deep_clean,
     ])
 
@@ -488,6 +493,7 @@ def main() -> int:
     do_trackers = args.deep_clean or args.clean_trackers
     do_scratch = args.deep_clean or args.clean_scratch
     do_playground = args.deep_clean or args.clean_playground
+    do_backup = args.deep_clean or args.clean_backup
 
     def get_folder_info(rel_path: str, num_bytes: int) -> Dict[str, str]:
         norm = rel_path.replace("\\", "/")
@@ -500,35 +506,48 @@ def main() -> int:
             return msg(f"KEEP (or {flag_name})", f"CONSERVER (ou {flag_name})")
 
         if norm == "antigravity":
-            return {"Status": msg("PARTIAL (See subfolders)", "PARTIEL (Voir sous-dossiers)"), "Risk": "-", "Role": msg("Google Antigravity IDE Core", "Coeur Google Antigravity IDE")}
-        if norm == "antigravity/scratch":
+            return {"Status": msg("PARTIAL (See subfolders)", "PARTIEL (Voir sous-dossiers)"), "Risk": "-", "Role": msg("Antigravity 2.0 (App & agy CLI)", "Antigravity 2.0 (App & CLI agy)")}
+        if norm == "antigravity-ide":
+            return {"Status": msg("PARTIAL (See subfolders)", "PARTIEL (Voir sous-dossiers)"), "Risk": "-", "Role": msg("Antigravity IDE (VS Code / Pre-2.0)", "Antigravity IDE (VS Code / Pre-2.0)")}
+        if norm == "antigravity-backup":
+            return {"Status": opt_status(do_backup, "-CleanBackup"), "Risk": msg("LOW (old migration backup)", "FAIBLE (ancienne sauvegarde migration)"), "Role": msg("Legacy migration snapshot", "Archive de migration pre-2.0")}
+        if norm == "antigravity-browser-profile":
+            return {"Status": msg("KEEP [BROWSER PROFILE]", "CONSERVER [PROFIL NAVIGATEUR]"), "Risk": msg("IMPORTANT (cookies & sessions)", "IMPORTANT (cookies & sessions)"), "Role": msg("Antigravity Browser Profile", "Profil Chromium Antigravity")}
+        if re.match(r"^antigravity(-ide)?/scratch$", norm):
             return {"Status": opt_status(do_scratch, "-CleanScratch"), "Risk": msg("LOW (temp files outside projects)", "FAIBLE (fichiers temp hors-projet)"), "Role": msg("Temporary workspaces", "Espaces de travail temporaires")}
-        if norm == "antigravity/playground":
+        if re.match(r"^antigravity(-ide)?/playground$", norm):
             return {"Status": opt_status(do_playground, "-CleanPlayground"), "Risk": msg("MODERATE (deletes Playground prototypes)", "MODERE (efface les prototypes Playground)"), "Role": msg("Disposable sandbox projects", "Projets bacs a sable jetables")}
-        if norm == "antigravity/conversations":
+        if re.match(r"^antigravity(-ide)?/conversations$", norm):
             st = msg("CLEAN (Orphans + Quota)", "NETTOYER (Orphelins + Quota)") if (do_orphan_pb or do_conversations) else msg("KEEP", "CONSERVER")
             return {"Status": st, "Risk": msg("NONE on orphaned .pb", "AUCUN sur .pb orphelins"), "Role": msg("Session Protobuf (.pb) states", "Etats Protobuf (.pb) des sessions")}
-        if norm == "antigravity/brain":
+        if re.match(r"^antigravity(-ide)?/brain$", norm):
             st = msg(f"CLEAN (Top {args.keep_per_project} + Empty)", f"NETTOYER (Top {args.keep_per_project} + Vides)") if do_conversations else msg("KEEP", "CONSERVER")
             return {"Status": st, "Risk": msg(f"MODERATE (deletes chats > Top {args.keep_per_project})", f"MODERE (efface chats > Top {args.keep_per_project})"), "Role": msg("Transcripts, Artifacts & Logs", "Transcripts, Artefacts & Logs")}
-        if norm == "antigravity/browser_recordings":
+        if re.match(r"^antigravity(-ide)?/browser_recordings$", norm):
             return {"Status": opt_status(do_browser, "-CleanBrowser"), "Risk": msg("NONE (past test videos)", "AUCUN (videos de tests passes)"), "Role": msg("Browser Captures & Videos", "Captures & Videos Navigateur")}
-        if re.match(r"^antigravity/(code_tracker|implicit|context_state)$", norm):
+        if re.match(r"^antigravity(-ide)?/(code_tracker|implicit|context_state)$", norm):
             return {"Status": opt_status(do_trackers, "-CleanTrackers"), "Risk": msg("LOW (rebuilt automatically by IDE)", "FAIBLE (reconstruit auto par l'IDE)"), "Role": msg("Indexing & Context snapshots", "Indexation & Snapshots de contexte")}
-        if re.match(r"^antigravity/(log|cache|crashes)$", norm):
+        if re.match(r"^antigravity(-ide)?/(log|cache|crashes)$", norm):
             return {"Status": opt_status(do_tmp_and_logs, "-CleanTmpAndLogs"), "Risk": msg("NONE (logs & technical cache)", "AUCUN (journaux & cache technique)"), "Role": msg("Logs, Cache & Crash dumps", "Logs, Cache & Crash dumps")}
-        if re.match(r"^antigravity/(bin|builtin)$", norm):
+        if re.match(r"^antigravity(-ide)?/(bin|builtin)$", norm):
             return {"Status": msg("KEEP [SYSTEM]", "CONSERVER [SYSTEME]"), "Risk": msg("CRITICAL (do not touch)", "CRITIQUE (ne pas toucher)"), "Role": msg("Internal Binaries & Skills", "Binaires & Skills internes")}
-        if re.match(r"^antigravity/(mcp|global_workflows|knowledge)$", norm):
+        if re.match(r"^antigravity(-ide)?/(mcp|global_workflows|knowledge)$", norm):
             return {"Status": msg("KEEP [CONFIG]", "CONSERVER [CONFIG]"), "Risk": msg("IMPORTANT (your settings)", "IMPORTANT (vos reglages)"), "Role": msg("MCP Config, Workflows & Knowledge", "Config MCP, Workflows & Knowledge")}
         if re.match(r"^(tmp|cache|logs)$", norm):
             return {"Status": opt_status(do_tmp_and_logs, "-CleanTmpAndLogs"), "Risk": msg("NONE (temporary files)", "AUCUN (fichiers temporaires)"), "Role": msg("Gemini Cache & Temp files", "Cache & Fichiers temp Gemini")}
         return {"Status": msg("KEEP [SYSTEM]", "CONSERVER [SYSTEME]"), "Risk": msg("IMPORTANT (internal state)", "IMPORTANT (etat interne)"), "Role": msg("Configuration / Index DB", "Configuration / Base d'index")}
 
     now_ts = time.time()
-    agy_root = gemini_root / "antigravity"
-    brain_path = agy_root / "brain"
-    conv_state_path = agy_root / "conversations"
+    surfaces = []
+    for surf_name in ("antigravity", "antigravity-ide"):
+        s_root = gemini_root / surf_name
+        if s_root.is_dir():
+            surfaces.append({
+                "Name": surf_name,
+                "Root": s_root,
+                "BrainPath": s_root / "brain",
+                "ConvStatePath": s_root / "conversations",
+            })
 
     if not args.json:
         print()
@@ -555,7 +574,7 @@ def main() -> int:
         prefix2 = "    " if is_last1 else "|   "
 
         if item1.is_dir():
-            if item1.name == "antigravity":
+            if item1.name in ("antigravity", "antigravity-ide"):
                 sub_entries = []
                 agy_bytes = 0
                 agy_files = 0
@@ -579,7 +598,7 @@ def main() -> int:
                         agy_files += 1
                         sub_entries.append({"Item": item2, "IsDir": False, "Bytes": sz2, "Files": 1, "Dirs": 0})
 
-                info1 = get_folder_info("antigravity", agy_bytes)
+                info1 = get_folder_info(item1.name, agy_bytes)
                 tree_rows.append({
                     "Tree": f"{branch1}[{item1.name}]",
                     "Status": info1["Status"],
@@ -591,15 +610,21 @@ def main() -> int:
 
                 sorted_subs = [
                     s for s in sorted(sub_entries, key=lambda x: x["Bytes"], reverse=True)
-                    if s["IsDir"] or s["Bytes"] >= 10240
+                    if s["IsDir"] or s["Bytes"] >= 10240 or s["Item"].name == ".ide_migration"
                 ]
                 for j, sub in enumerate(sorted_subs):
                     is_last2 = j == len(sorted_subs) - 1
                     branch2 = "+-- " if is_last2 else "|-- "
-                    rel2 = f"antigravity/{sub['Item'].name}"
+                    rel2 = f"{item1.name}/{sub['Item'].name}"
                     label2 = f"{prefix2}{branch2}[{sub['Item'].name}]" if sub["IsDir"] else f"{prefix2}{branch2}{sub['Item'].name}"
                     if sub["IsDir"]:
                         info2 = get_folder_info(rel2, sub["Bytes"])
+                    elif sub["Item"].name == ".ide_migration":
+                        info2 = {
+                            "Status": msg("KEEP [MIGRATION MARKER]", "CONSERVER [MARQUEUR MIGRATION]"),
+                            "Risk": "NONE",
+                            "Role": msg("Marks IDE -> Antigravity 2.0 migration", "Marqueur de migration IDE -> 2.0"),
+                        }
                     else:
                         info2 = {
                             "Status": msg("KEEP [INDEX/DB]", "CONSERVER [INDEX/DB]"),
@@ -655,27 +680,32 @@ def main() -> int:
         )
         print_table(tree_rows, cols1)
 
-    # --- 2. Conversations Audit ---
+    # --- 2. Conversations Audit across antigravity/ and antigravity-ide/ ---
     to_delete_brain: List[Dict[str, Any]] = []
     kept_convs: List[Dict[str, Any]] = []
     conv_report: List[Dict[str, Any]] = []
     brain_freed_bytes = 0
 
-    if brain_path.is_dir():
-        if not args.json:
-            cprint(
-                msg(
-                    f"[2/4] Conversations by Project & Topic (KeepPerProject = {args.keep_per_project}, Empty sessions = DELETE):",
-                    f"[2/4] Conversations par Projet & Sujet (KeepPerProject = {args.keep_per_project}, Sessions vides = SUPPRIMER) :",
-                ),
-                "cyan",
-            )
+    if not args.json:
+        cprint(
+            msg(
+                f"[2/4] Conversations by Project & Topic (KeepPerProject = {args.keep_per_project}, Empty sessions = DELETE):",
+                f"[2/4] Conversations par Projet & Sujet (KeepPerProject = {args.keep_per_project}, Sessions vides = SUPPRIMER) :",
+            ),
+            "cyan",
+        )
+
+    for surf in surfaces:
+        brain_path = surf["BrainPath"]
+        conv_state_path = surf["ConvStatePath"]
+        if not brain_path.is_dir():
+            continue
 
         all_convs = []
         try:
             for d in brain_path.iterdir():
                 if d.is_dir():
-                    meta = get_conversation_metadata(d, is_fr)
+                    meta = get_conversation_metadata(d, is_fr, surf["Name"])
                     if args.project_filter:
                         if not (re.search(args.project_filter, meta["ProjectName"], re.I) or re.search(args.project_filter, meta["ProjectPath"], re.I)):
                             continue
@@ -683,7 +713,6 @@ def main() -> int:
         except OSError:
             pass
 
-        # Pre-index conversations/ items by stem/name for fast pairing
         conv_state_map: Dict[str, List[Path]] = {}
         if conv_state_path.is_dir():
             try:
@@ -693,7 +722,6 @@ def main() -> int:
             except OSError:
                 pass
 
-        # Group by ProjectPath
         groups: Dict[str, List[Dict[str, Any]]] = {}
         for c in all_convs:
             groups.setdefault(c["ProjectPath"], []).append(c)
@@ -750,6 +778,7 @@ def main() -> int:
 
                 row = {
                     "Status": status,
+                    "Surface": item["Surface"],
                     "Risk": risk,
                     "Project": item["ProjectName"],
                     "Topic": item["Topic"],
@@ -773,76 +802,83 @@ def main() -> int:
                 else:
                     kept_convs.append(row)
 
-        if not args.json:
-            sorted_report = sorted(conv_report, key=lambda r: (r["Project"], r["LastActive"]), reverse=True)
-            cols2 = (
-                [
-                    ("Status", "Statut"),
-                    ("Project", "Projet"),
-                    ("Topic", "Sujet"),
-                    ("LastActive", "DernierAct"),
-                    ("BrainSize", "TailleBrain"),
-                    ("ConvPbSize", "TailleConvPb"),
-                    ("Risk", "Risque"),
-                    ("Id", "Id"),
-                ]
-                if is_fr
-                else [
-                    ("Status", "Status"),
-                    ("Project", "Project"),
-                    ("Topic", "Topic"),
-                    ("LastActive", "LastActive"),
-                    ("BrainSize", "BrainSize"),
-                    ("ConvPbSize", "ConvPbSize"),
-                    ("Risk", "Risk"),
-                    ("Id", "Id"),
-                ]
-            )
-            print_table(sorted_report, cols2)
+    if not args.json and conv_report:
+        sorted_report = sorted(conv_report, key=lambda r: (r["Surface"], r["Project"], r["LastActive"]), reverse=True)
+        cols2 = (
+            [
+                ("Status", "Statut"),
+                ("Project", "Projet"),
+                ("Topic", "Sujet"),
+                ("LastActive", "DernierAct"),
+                ("BrainSize", "TailleBrain"),
+                ("ConvPbSize", "TailleConvPb"),
+                ("Risk", "Risque"),
+                ("Id", "Id"),
+            ]
+            if is_fr
+            else [
+                ("Status", "Status"),
+                ("Project", "Project"),
+                ("Topic", "Topic"),
+                ("LastActive", "LastActive"),
+                ("BrainSize", "BrainSize"),
+                ("ConvPbSize", "ConvPbSize"),
+                ("Risk", "Risk"),
+                ("Id", "Id"),
+            ]
+        )
+        print_table(sorted_report, cols2)
 
-    # --- 3. Orphaned .pb files in conversations/ ---
+    # --- 3. Orphaned .pb files in conversations/ across surfaces ---
     orphan_conv_items: List[Dict[str, Any]] = []
     orphan_conv_bytes = 0
 
-    if conv_state_path.is_dir() and not args.project_filter:
-        all_brain_ids = set()
-        if brain_path.is_dir():
-            try:
-                all_brain_ids = {p.name for p in brain_path.iterdir() if p.is_dir()}
-            except OSError:
-                pass
-
+    if not args.project_filter:
         orphan_status_label = msg("DELETE [ORPHAN .pb]", "SUPPRIMER [ORPHELIN .pb]") if do_orphan_pb else msg("KEEP (-CleanOrphanPb)", "CONSERVER (-CleanOrphanPb)")
 
-        try:
-            for item in conv_state_path.iterdir():
-                id_cand = item.name if item.is_dir() else item.stem
+        for surf in surfaces:
+            conv_state_path = surf["ConvStatePath"]
+            brain_path = surf["BrainPath"]
+            if not conv_state_path.is_dir():
+                continue
+
+            all_brain_ids = set()
+            if brain_path.is_dir():
                 try:
-                    mtime = item.stat().st_mtime
+                    all_brain_ids = {p.name for p in brain_path.iterdir() if p.is_dir()}
                 except OSError:
-                    mtime = now_ts
-                mins_since_mod = (now_ts - mtime) / 60.0
-                if id_cand not in all_brain_ids and mins_since_mod > args.active_guard_minutes:
-                    sz, _, _ = get_folder_stats(item)
-                    orphan_conv_bytes += sz
-                    orphan_conv_items.append({
-                        "Status": orphan_status_label,
-                        "Risk": msg("NONE (brain folder already deleted)", "AUCUN (brain deja supprime)"),
-                        "File": item.name,
-                        "Size": format_size(sz, is_fr),
-                        "LastModified": datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M"),
-                        "FullPath": str(item),
-                        "SizeBytes": sz,
-                    })
-        except OSError:
-            pass
+                    pass
+
+            try:
+                for item in conv_state_path.iterdir():
+                    id_cand = item.name if item.is_dir() else item.stem
+                    try:
+                        mtime = item.stat().st_mtime
+                    except OSError:
+                        mtime = now_ts
+                    mins_since_mod = (now_ts - mtime) / 60.0
+                    if id_cand not in all_brain_ids and mins_since_mod > args.active_guard_minutes:
+                        sz, _, _ = get_folder_stats(item)
+                        orphan_conv_bytes += sz
+                        orphan_conv_items.append({
+                            "Status": orphan_status_label,
+                            "Surface": surf["Name"],
+                            "Risk": msg("NONE (brain folder already deleted)", "AUCUN (brain deja supprime)"),
+                            "File": f"{surf['Name']}/conversations/{item.name}",
+                            "Size": format_size(sz, is_fr),
+                            "LastModified": datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M"),
+                            "FullPath": str(item),
+                            "SizeBytes": sz,
+                        })
+            except OSError:
+                pass
 
         if not args.json:
             if orphan_conv_items:
                 cprint(
                     msg(
-                        f"[3/4] {len(orphan_conv_items)} ORPHANED files/folders in 'antigravity/conversations/' (Total: {format_size(orphan_conv_bytes, is_fr)}):",
-                        f"[3/4] {len(orphan_conv_items)} fichiers/dossiers ORPHELINS dans 'antigravity/conversations/' (Total : {format_size(orphan_conv_bytes, is_fr)}) :",
+                        f"[3/4] {len(orphan_conv_items)} ORPHANED files/folders in 'conversations/' across Antigravity surfaces (Total: {format_size(orphan_conv_bytes, is_fr)}):",
+                        f"[3/4] {len(orphan_conv_items)} fichiers/dossiers ORPHELINS dans 'conversations/' (Total : {format_size(orphan_conv_bytes, is_fr)}) :",
                     ),
                     "yellow",
                 )
@@ -864,28 +900,37 @@ def main() -> int:
             else:
                 cprint(
                     msg(
-                        "[3/4] 'antigravity/conversations/' is perfectly synchronized with 'brain/' (0 orphans).",
-                        "[3/4] 'antigravity/conversations/' est parfaitement synchronise avec 'brain/' (0 orphelin).",
+                        "[3/4] 'conversations/' is perfectly synchronized with 'brain/' (0 orphans).",
+                        "[3/4] 'conversations/' est parfaitement synchronise avec 'brain/' (0 orphelin).",
                     ),
                     "green",
                 )
 
     # --- 4. Modular Cache & Temporary Targets ---
     modular_targets: List[Dict[str, Any]] = []
-    cache_specs = [
-        {"Category": "scratch", "Label": msg("Temp workspaces 'antigravity/scratch'", "Espaces temporaires 'antigravity/scratch'"), "Path": agy_root / "scratch", "Enabled": do_scratch, "Switch": "-CleanScratch", "Risk": msg("LOW (temp folders outside projects)", "FAIBLE (dossiers temp hors-projet)")},
-        {"Category": "playground", "Label": msg("Sandbox projects 'antigravity/playground'", "Projets bacs a sable 'antigravity/playground'"), "Path": agy_root / "playground", "Enabled": do_playground, "Switch": "-CleanPlayground", "Risk": msg("MODERATE (deletes unexported Playground prototypes)", "MODERE (efface les prototypes Playground non exportes)")},
-        {"Category": "browser", "Label": msg("Browser captures 'antigravity/browser_recordings'", "Captures 'antigravity/browser_recordings'"), "Path": agy_root / "browser_recordings", "Enabled": do_browser, "Switch": "-CleanBrowser", "Risk": msg("NONE (old Playwright captures/videos)", "AUCUN (anciennes captures/videos Playwright)")},
-        {"Category": "trackers", "Label": msg("Indexing 'antigravity/implicit'", "Indexation 'antigravity/implicit'"), "Path": agy_root / "implicit", "Enabled": do_trackers, "Switch": "-CleanTrackers", "Risk": msg("LOW (rebuilt automatically)", "FAIBLE (reconstruit automatiquement)")},
-        {"Category": "trackers", "Label": msg("Snapshots 'antigravity/code_tracker'", "Snapshots 'antigravity/code_tracker'"), "Path": agy_root / "code_tracker", "Enabled": do_trackers, "Switch": "-CleanTrackers", "Risk": msg("LOW (rebuilt automatically)", "FAIBLE (reconstruit automatiquement)")},
-        {"Category": "trackers", "Label": msg("Context 'antigravity/context_state'", "Contexte 'antigravity/context_state'"), "Path": agy_root / "context_state", "Enabled": do_trackers, "Switch": "-CleanTrackers", "Risk": msg("LOW (rebuilt automatically)", "FAIBLE (reconstruit automatiquement)")},
-        {"Category": "tmpLogs", "Label": msg("Logs 'antigravity/log'", "Journaux 'antigravity/log'"), "Path": agy_root / "log", "Enabled": do_tmp_and_logs, "Switch": "-CleanTmpAndLogs", "Risk": msg("NONE (application logs)", "AUCUN (logs applicatifs)")},
-        {"Category": "tmpLogs", "Label": msg("Cache 'antigravity/cache'", "Cache 'antigravity/cache'"), "Path": agy_root / "cache", "Enabled": do_tmp_and_logs, "Switch": "-CleanTmpAndLogs", "Risk": msg("NONE (technical cache)", "AUCUN (cache technique)")},
-        {"Category": "tmpLogs", "Label": msg("Crash reports 'antigravity/crashes'", "Rapports de crash 'antigravity/crashes'"), "Path": agy_root / "crashes", "Enabled": do_tmp_and_logs, "Switch": "-CleanTmpAndLogs", "Risk": msg("NONE (crash dumps)", "AUCUN (crash dumps)")},
-        {"Category": "tmpLogs", "Label": msg("Global temp '~/.gemini/tmp'", "Cache global '~/.gemini/tmp'"), "Path": gemini_root / "tmp", "Enabled": do_tmp_and_logs, "Switch": "-CleanTmpAndLogs", "Risk": msg("NONE (temporary files)", "AUCUN (fichiers temporaires)")},
-        {"Category": "tmpLogs", "Label": msg("Global cache '~/.gemini/cache'", "Cache global '~/.gemini/cache'"), "Path": gemini_root / "cache", "Enabled": do_tmp_and_logs, "Switch": "-CleanTmpAndLogs", "Risk": msg("NONE (global cache)", "AUCUN (cache global)")},
-        {"Category": "tmpLogs", "Label": msg("Global logs '~/.gemini/logs'", "Journaux globaux '~/.gemini/logs'"), "Path": gemini_root / "logs", "Enabled": do_tmp_and_logs, "Switch": "-CleanTmpAndLogs", "Risk": msg("NONE (global logs)", "AUCUN (journaux globaux)")},
-    ]
+    cache_specs: List[Dict[str, Any]] = []
+
+    for surf in surfaces:
+        sn = surf["Name"]
+        sr = surf["Root"]
+        cache_specs.extend([
+            {"Category": "scratch", "Label": msg(f"Temp workspaces '{sn}/scratch'", f"Espaces temporaires '{sn}/scratch'"), "Path": sr / "scratch", "Enabled": do_scratch, "Switch": "-CleanScratch", "Risk": msg("LOW (temp folders outside projects)", "FAIBLE (dossiers temp hors-projet)"), "KeepRootDir": True},
+            {"Category": "playground", "Label": msg(f"Sandbox projects '{sn}/playground'", f"Projets bacs a sable '{sn}/playground'"), "Path": sr / "playground", "Enabled": do_playground, "Switch": "-CleanPlayground", "Risk": msg("MODERATE (deletes unexported Playground prototypes)", "MODERE (efface les prototypes Playground non exportes)"), "KeepRootDir": True},
+            {"Category": "browser", "Label": msg(f"Browser captures '{sn}/browser_recordings'", f"Captures '{sn}/browser_recordings'"), "Path": sr / "browser_recordings", "Enabled": do_browser, "Switch": "-CleanBrowser", "Risk": msg("NONE (old Playwright captures/videos)", "AUCUN (anciennes captures/videos Playwright)"), "KeepRootDir": True},
+            {"Category": "trackers", "Label": msg(f"Indexing '{sn}/implicit'", f"Indexation '{sn}/implicit'"), "Path": sr / "implicit", "Enabled": do_trackers, "Switch": "-CleanTrackers", "Risk": msg("LOW (rebuilt automatically)", "FAIBLE (reconstruit automatiquement)"), "KeepRootDir": True},
+            {"Category": "trackers", "Label": msg(f"Snapshots '{sn}/code_tracker'", f"Snapshots '{sn}/code_tracker'"), "Path": sr / "code_tracker", "Enabled": do_trackers, "Switch": "-CleanTrackers", "Risk": msg("LOW (rebuilt automatically)", "FAIBLE (reconstruit automatiquement)"), "KeepRootDir": True},
+            {"Category": "trackers", "Label": msg(f"Context '{sn}/context_state'", f"Contexte '{sn}/context_state'"), "Path": sr / "context_state", "Enabled": do_trackers, "Switch": "-CleanTrackers", "Risk": msg("LOW (rebuilt automatically)", "FAIBLE (reconstruit automatiquement)"), "KeepRootDir": True},
+            {"Category": "tmpLogs", "Label": msg(f"Logs '{sn}/log'", f"Journaux '{sn}/log'"), "Path": sr / "log", "Enabled": do_tmp_and_logs, "Switch": "-CleanTmpAndLogs", "Risk": msg("NONE (application logs)", "AUCUN (logs applicatifs)"), "KeepRootDir": True},
+            {"Category": "tmpLogs", "Label": msg(f"Cache '{sn}/cache'", f"Cache '{sn}/cache'"), "Path": sr / "cache", "Enabled": do_tmp_and_logs, "Switch": "-CleanTmpAndLogs", "Risk": msg("NONE (technical cache)", "AUCUN (cache technique)"), "KeepRootDir": True},
+            {"Category": "tmpLogs", "Label": msg(f"Crash reports '{sn}/crashes'", f"Rapports de crash '{sn}/crashes'"), "Path": sr / "crashes", "Enabled": do_tmp_and_logs, "Switch": "-CleanTmpAndLogs", "Risk": msg("NONE (crash dumps)", "AUCUN (crash dumps)"), "KeepRootDir": True},
+        ])
+
+    cache_specs.extend([
+        {"Category": "tmpLogs", "Label": msg("Global temp '~/.gemini/tmp'", "Cache global '~/.gemini/tmp'"), "Path": gemini_root / "tmp", "Enabled": do_tmp_and_logs, "Switch": "-CleanTmpAndLogs", "Risk": msg("NONE (temporary files)", "AUCUN (fichiers temporaires)"), "KeepRootDir": True},
+        {"Category": "tmpLogs", "Label": msg("Global cache '~/.gemini/cache'", "Cache global '~/.gemini/cache'"), "Path": gemini_root / "cache", "Enabled": do_tmp_and_logs, "Switch": "-CleanTmpAndLogs", "Risk": msg("NONE (global cache)", "AUCUN (cache global)"), "KeepRootDir": True},
+        {"Category": "tmpLogs", "Label": msg("Global logs '~/.gemini/logs'", "Journaux globaux '~/.gemini/logs'"), "Path": gemini_root / "logs", "Enabled": do_tmp_and_logs, "Switch": "-CleanTmpAndLogs", "Risk": msg("NONE (global logs)", "AUCUN (journaux globaux)"), "KeepRootDir": True},
+        {"Category": "backup", "Label": msg("Migration backup '~/.gemini/antigravity-backup'", "Archive migration '~/.gemini/antigravity-backup'"), "Path": gemini_root / "antigravity-backup", "Enabled": do_backup, "Switch": "-CleanBackup", "Risk": msg("LOW (legacy migration backup snapshot)", "FAIBLE (ancienne archive de migration)"), "KeepRootDir": False},
+    ])
 
     for spec in cache_specs:
         p = spec["Path"]
@@ -903,7 +948,7 @@ def main() -> int:
                     "Enabled": spec["Enabled"],
                     "SizeBytes": b_sz,
                     "Path": str(p),
-                    "KeepRootDir": True,
+                    "KeepRootDir": spec["KeepRootDir"],
                 })
 
     for kept in kept_convs:
@@ -946,41 +991,42 @@ def main() -> int:
         )
         print_table(sorted_mod, cols4)
 
-        for heavy_name in ("scratch", "playground"):
-            hp = agy_root / heavy_name
-            if hp.is_dir():
-                try:
-                    sub_dirs = list(hp.iterdir())
-                except OSError:
-                    sub_dirs = []
-                if sub_dirs:
-                    cprint(
-                        msg(
-                            f"  Inner contents of 'antigravity/{heavy_name}' ({len(sub_dirs)} item(s)):",
-                            f"  Detail du contenu de 'antigravity/{heavy_name}' ({len(sub_dirs)} element(s)) :",
-                        ),
-                        "dark_cyan",
-                    )
-                    sub_report = []
-                    for sd in sub_dirs:
-                        sz, _, _ = get_folder_stats(sd)
-                        try:
-                            mt = datetime.datetime.fromtimestamp(sd.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-                        except OSError:
-                            mt = "-"
-                        sub_report.append({
-                            "Subfolder": f"  |-- {sd.name}",
-                            "Size": format_size(sz, is_fr),
-                            "LastModified": mt,
-                            "SizeBytes": sz,
-                        })
-                    top_subs = sorted(sub_report, key=lambda x: x["SizeBytes"], reverse=True)[:8]
-                    cols_sub = (
-                        [("Subfolder", "SousDossier"), ("Size", "Taille"), ("LastModified", "DernierMod")]
-                        if is_fr
-                        else [("Subfolder", "Subfolder"), ("Size", "Size"), ("LastModified", "LastModified")]
-                    )
-                    print_table(top_subs, cols_sub)
+        for surf in surfaces:
+            for heavy_name in ("scratch", "playground"):
+                hp = surf["Root"] / heavy_name
+                if hp.is_dir():
+                    try:
+                        sub_dirs = list(hp.iterdir())
+                    except OSError:
+                        sub_dirs = []
+                    if sub_dirs:
+                        cprint(
+                            msg(
+                                f"  Inner contents of '{surf['Name']}/{heavy_name}' ({len(sub_dirs)} item(s)):",
+                                f"  Detail du contenu de '{surf['Name']}/{heavy_name}' ({len(sub_dirs)} element(s)) :",
+                            ),
+                            "dark_cyan",
+                        )
+                        sub_report = []
+                        for sd in sub_dirs:
+                            sz, _, _ = get_folder_stats(sd)
+                            try:
+                                mt = datetime.datetime.fromtimestamp(sd.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                            except OSError:
+                                mt = "-"
+                            sub_report.append({
+                                "Subfolder": f"  |-- {sd.name}",
+                                "Size": format_size(sz, is_fr),
+                                "LastModified": mt,
+                                "SizeBytes": sz,
+                            })
+                        top_subs = sorted(sub_report, key=lambda x: x["SizeBytes"], reverse=True)[:8]
+                        cols_sub = (
+                            [("Subfolder", "SousDossier"), ("Size", "Taille"), ("LastModified", "DernierMod")]
+                            if is_fr
+                            else [("Subfolder", "Subfolder"), ("Size", "Size"), ("LastModified", "LastModified")]
+                        )
+                        print_table(top_subs, cols_sub)
 
     active_modular = [m for m in modular_targets if m["Enabled"]]
     active_modular_bytes = sum(m["SizeBytes"] for m in active_modular)
@@ -994,6 +1040,7 @@ def main() -> int:
     browser_bytes = sum(m["SizeBytes"] for m in modular_targets if m["Category"] == "browser")
     trackers_bytes = sum(m["SizeBytes"] for m in modular_targets if m["Category"] == "trackers")
     tmp_logs_bytes = sum(m["SizeBytes"] for m in modular_targets if m["Category"] == "tmpLogs")
+    backup_bytes = sum(m["SizeBytes"] for m in modular_targets if m["Category"] == "backup")
 
     if not args.json:
         sel_lbl = msg("SELECTED ", "SELECTIONNE")
@@ -1029,13 +1076,18 @@ def main() -> int:
         )
         cprint(
             f"  6. -CleanScratch       : {format_size(scratch_bytes, is_fr):>10} | {sel_lbl if do_scratch else opt_lbl} "
-            f"(antigravity/scratch)        [{msg('LOW RISK', 'RISQUE FAIBLE')}]",
+            f"(scratch workspaces)         [{msg('LOW RISK', 'RISQUE FAIBLE')}]",
             "yellow" if do_scratch else "gray",
         )
         cprint(
             f"  7. -CleanPlayground    : {format_size(playground_bytes, is_fr):>10} | {sel_lbl if do_playground else opt_lbl} "
-            f"(antigravity/playground)     [{msg('MODERATE RISK', 'RISQUE MODERE')}]",
+            f"(playground prototypes)      [{msg('MODERATE RISK', 'RISQUE MODERE')}]",
             "dark_yellow" if do_playground else "gray",
+        )
+        cprint(
+            f"  8. -CleanBackup        : {format_size(backup_bytes, is_fr):>10} | {sel_lbl if do_backup else opt_lbl} "
+            f"(antigravity-backup archive) [{msg('LOW RISK', 'RISQUE FAIBLE')}]",
+            "yellow" if do_backup else "gray",
         )
         cprint("---------------------------------------------------------------------------------------", "dark_cyan")
         cprint(
@@ -1047,8 +1099,8 @@ def main() -> int:
         )
         cprint(
             msg(
-                f"  TOTAL TO BE DELETED (With -DeepClean): {format_size(total_deep_clean_bytes, is_fr)} (+ {format_size(all_modular_bytes, is_fr)} of caches)",
-                f"  TOTAL QUI SERA SUPPRIME (Avec -DeepClean) : {format_size(total_deep_clean_bytes, is_fr)} (+ {format_size(all_modular_bytes, is_fr)} de caches)",
+                f"  TOTAL TO BE DELETED (With -DeepClean): {format_size(total_deep_clean_bytes, is_fr)} (+ {format_size(all_modular_bytes, is_fr)} of caches/backups)",
+                f"  TOTAL QUI SERA SUPPRIME (Avec -DeepClean) : {format_size(total_deep_clean_bytes, is_fr)} (+ {format_size(all_modular_bytes, is_fr)} de caches/backups)",
             ),
             "magenta",
         )
@@ -1075,6 +1127,7 @@ def main() -> int:
                             "trackersBytes": trackers_bytes,
                             "scratchBytes": scratch_bytes,
                             "playgroundBytes": playground_bytes,
+                            "backupBytes": backup_bytes,
                         },
                         "conversations": conv_report,
                         "orphanPbFiles": orphan_conv_items,
@@ -1090,9 +1143,9 @@ def main() -> int:
         cprint(msg("Example commands based on your needs:", "Exemples de commandes selon votre besoin :"), "white")
         cprint(msg("  # A. 100% RISK-FREE Cleanup (Orphaned .pb + Tmp/Logs + Browser Captures):", "  # A. Nettoyage 100% SANS RISQUE (Orphelins .pb + Tmp/Logs + Captures Browser) :"), "gray")
         cprint("  python3 clean-antigravity.py --clean-orphan-pb --clean-tmp-and-logs --clean-browser --execute", "green")
-        cprint(msg("  # B. Standard Cleanup + Scratch (Conversations + Orphaned .pb + Scratch):", "  # B. Nettoyage Standard + Scratch (Conversations + Orphelins .pb + Scratch) :"), "gray")
-        cprint("  python3 clean-antigravity.py --clean-conversations --clean-scratch --execute", "green")
-        cprint(msg("  # C. Full Deep Cleanup (Include everything, including Playground):", "  # C. Nettoyage Complet (Tout inclure, y compris Playground) :"), "gray")
+        cprint(msg("  # B. Standard Cleanup + Scratch + Legacy Migration Backup:", "  # B. Nettoyage Standard + Scratch + Archive de migration (antigravity-backup) :"), "gray")
+        cprint("  python3 clean-antigravity.py --clean-conversations --clean-scratch --clean-backup --execute", "green")
+        cprint(msg("  # C. Full Deep Cleanup (Include everything across Antigravity 2.0 & IDE):", "  # C. Nettoyage Complet (Tout inclure sur Antigravity 2.0 & IDE) :"), "gray")
         cprint("  python3 clean-antigravity.py --deep-clean --execute", "green")
         return 0
 
@@ -1146,7 +1199,7 @@ def main() -> int:
                         for file in files:
                             fp = Path(root) / file
                             try:
-                                zf.write(fp, fp.relative_to(brain_path))
+                                zf.write(fp, fp.relative_to(gemini_root))
                             except OSError:
                                 pass
 
@@ -1185,8 +1238,8 @@ def main() -> int:
                 short_id = item["Id"][:8]
                 cprint(
                     msg(
-                        f"  [Conversation] {short_id} | Project: {item['Project']:<16} | Brain: {item['BrainSize']:<9} + .pb: {item['ConvPbSize']:<9} => Freed: {format_size(freed_b, is_fr)}",
-                        f"  [Conversation] {short_id} | Projet: {item['Project']:<16} | Brain: {item['BrainSize']:<9} + .pb: {item['ConvPbSize']:<9} => Libere : {format_size(freed_b, is_fr)}",
+                        f"  [Conversation] {short_id} | Project: {item['Project']:<22} | Brain: {item['BrainSize']:<9} + .pb: {item['ConvPbSize']:<9} => Freed: {format_size(freed_b, is_fr)}",
+                        f"  [Conversation] {short_id} | Projet: {item['Project']:<22} | Brain: {item['BrainSize']:<9} + .pb: {item['ConvPbSize']:<9} => Libere : {format_size(freed_b, is_fr)}",
                     ),
                     "yellow",
                 )
@@ -1220,8 +1273,8 @@ def main() -> int:
             lock_note = msg(f" ({orph_locked_count} locked by IDE)", f" ({orph_locked_count} verrouille(s) par l'IDE)") if orph_locked_count > 0 else ""
             cprint(
                 msg(
-                    f"  [Orphan .pb]   {orph_deleted_count}/{len(orphan_conv_items)} files deleted in antigravity/conversations/ => Freed: {format_size(orph_actual_freed, is_fr)}{lock_note}",
-                    f"  [Orphelins .pb] {orph_deleted_count}/{len(orphan_conv_items)} fichiers supprimes dans antigravity/conversations/ => Libere : {format_size(orph_actual_freed, is_fr)}{lock_note}",
+                    f"  [Orphan .pb]   {orph_deleted_count}/{len(orphan_conv_items)} files deleted in conversations/ => Freed: {format_size(orph_actual_freed, is_fr)}{lock_note}",
+                    f"  [Orphelins .pb] {orph_deleted_count}/{len(orphan_conv_items)} fichiers supprimes dans conversations/ => Libere : {format_size(orph_actual_freed, is_fr)}{lock_note}",
                 ),
                 "yellow",
             )
@@ -1259,8 +1312,8 @@ def main() -> int:
             )
             cprint(
                 msg(
-                    f"  [Modular]       {dt['Target']:<46} | {deleted_files:>5} file(s)    | Before: {format_size(before_bytes, is_fr):>9} -> After: {format_size(after_bytes, is_fr):>8} => Freed: {format_size(freed_bytes, is_fr)}{lock_msg}",
-                    f"  [DeepClean]     {dt['Target']:<46} | {deleted_files:>5} fichier(s) | Avant: {format_size(before_bytes, is_fr):>9} -> Apres: {format_size(after_bytes, is_fr):>8} => Libere : {format_size(freed_bytes, is_fr)}{lock_msg}",
+                    f"  [Modular]       {dt['Target']:<48} | {deleted_files:>5} file(s)    | Before: {format_size(before_bytes, is_fr):>9} -> After: {format_size(after_bytes, is_fr):>8} => Freed: {format_size(freed_bytes, is_fr)}{lock_msg}",
+                    f"  [DeepClean]     {dt['Target']:<48} | {deleted_files:>5} fichier(s) | Avant: {format_size(before_bytes, is_fr):>9} -> Apres: {format_size(after_bytes, is_fr):>8} => Libere : {format_size(freed_bytes, is_fr)}{lock_msg}",
                 ),
                 "magenta",
             )
@@ -1321,8 +1374,8 @@ def main() -> int:
         diff = total_planned_bytes - total_actually_freed
         cprint(
             msg(
-                f"  DIFFERENCE (Locked files)      : {format_size(diff, is_fr)} (currently in use by Antigravity IDE)",
-                f"  ECART (Fichiers verrouilles)   : {format_size(diff, is_fr)} (en cours d'utilisation par l'IDE Antigravity)",
+                f"  DIFFERENCE (Locked files)      : {format_size(diff, is_fr)} (currently in use by Antigravity)",
+                f"  ECART (Fichiers verrouilles)   : {format_size(diff, is_fr)} (en cours d'utilisation par Antigravity)",
             ),
             "yellow",
         )

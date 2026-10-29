@@ -1,18 +1,25 @@
 # AGENT.md — AI Agent Operational Guide for `Antigravity-Clean`
 
-This document provides structured operational instructions for **AI Coding Agents** (Google Antigravity, Claude Code, Cursor, Windsurf, GitHub Copilot, Codex, etc.) to safely audit and reclaim disk space in `~/.gemini` and `~/.gemini/antigravity` across **Windows, macOS, and Linux**.
+This document provides structured operational instructions for **AI Coding Agents** (Google Antigravity, Claude Code, Cursor, Windsurf, GitHub Copilot, Codex, etc.) to safely audit and reclaim disk space in `~/.gemini`, `~/.gemini/antigravity` (**Antigravity 2.0**), `~/.gemini/antigravity-ide` (**Antigravity IDE**), and `~/.gemini/antigravity-backup` across **Windows, macOS, and Linux**.
 
 ---
 
-## 1. Purpose & Overview
+## 1. Purpose & Directory Architecture
 
-Google Antigravity IDE and Gemini CLI store conversation transcripts, Protobuf session states (`.pb`), browser recordings, code tracker snapshots, scratch workspaces, and sandbox playground projects inside `~/.gemini`. Over time, this directory can grow to several gigabytes.
+Google Antigravity and Gemini CLI store conversation transcripts, Protobuf session states (`.pb`), browser recordings, code tracker snapshots, scratch workspaces, and sandbox playground projects inside `~/.gemini`.
 
-`Antigravity-Clean` (`agy-clean`) is a **non-destructive-by-default** auditing and modular cleanup tool that:
-1. Audits the `~/.gemini` directory tree with explicit **Status** (`KEEP` / `DELETE`) and **Risk Levels** (`NONE`, `LOW`, `MODERATE`, `IMPORTANT`, `CRITICAL`).
-2. Matches `antigravity/brain/<conversation-id>` directories with `antigravity/conversations/<conversation-id>.pb` state files.
-3. Keeps the top `N` most recent real user conversations per project (`-KeepPerProject 2` by default), while automatically purging **empty sessions** and keeping **subagents** (`[Agent]`) out of the user's main conversation quota.
-4. Protects any currently active conversation modified within the last `15` minutes (`-ActiveGuardMinutes 15`), making it **100% safe for an AI agent to run while inside an active Antigravity session**.
+### Antigravity Surfaces in `~/.gemini`:
+1. **`~/.gemini/antigravity/` (Antigravity 2.0 — Desktop App & `agy` CLI v1.4+)**:
+   Active primary directory for the standalone Antigravity 2.0 Electron application and `agy` CLI (`~/.gemini/bin/agy`).
+2. **`~/.gemini/antigravity-ide/` (Antigravity IDE — VS Code-based 1.x editor)**:
+   Created during the Antigravity 2.0 migration (marked by `.ide_migration`) to isolate data belonging to the VS Code-based Antigravity IDE (`language_server_*`) so both versions can coexist without database collisions.
+3. **`~/.gemini/antigravity-backup/` (Legacy Migration Snapshot)**:
+   Static archive created automatically during an earlier schema migration (`.migrated`), cleanable via `-CleanBackup` (`--clean-backup`).
+
+`Antigravity-Clean` (`agy-clean`) automatically audits and cleans **both** `antigravity/` and `antigravity-ide/` (tagged `[IDE]`), while:
+- Retaining the top `N` most recent real user conversations per project per surface (`-KeepPerProject 2` by default).
+- Automatically purging **empty sessions** and keeping **subagents** (`[Agent]`) out of the user's main conversation quota.
+- Protecting any currently active conversation modified within the last `15` minutes (`-ActiveGuardMinutes 15`), making it **100% safe for an AI agent to run while inside an active Antigravity session**.
 
 ---
 
@@ -81,10 +88,10 @@ When a user asks an agent to "clean up Antigravity", "free disk space in `.gemin
 
 | Tier | Target Flags | Risk Level | What It Deletes | When Agent Should Use |
 | :--- | :--- | :--- | :--- | :--- |
-| **Tier 1: Zero-Risk Cleanup** | `-CleanOrphanPb -CleanTmpAndLogs -CleanBrowser` | **NONE** | Orphaned `.pb` states, `tmp/`, `cache/`, `log/`, `crashes/`, browser recordings, raw `steps/` & `tasks/` logs in inactive kept chats. | Safe to execute autonomously anytime without losing any conversation history or code. |
-| **Tier 2: Standard + Cache Rebuild** | Tier 1 + `-CleanTrackers -CleanScratch` | **LOW** | Adds `implicit/`, `code_tracker/`, `context_state/` (rebuilt automatically by IDE) and `scratch/` temporary folders. | Recommended when the user wants significant space recovery without losing recent project chats. |
-| **Tier 3: Conversation Quota Pruning** | `-CleanConversations` (Default) | **MODERATE** | Deletes empty sessions, completed subagents, and conversations older than the top `KeepPerProject` (default `2`) per project. | Use when pruning old chat history. Add `-BackupDir ./backups` if the user wants a `.zip` archive before deletion. |
-| **Tier 4: Full Deep Clean** | `-DeepClean` | **MODERATE** | Enables **all** options above (`1` through `7`), including `antigravity/playground`. | Verify with the user before deleting `playground/` if `playgroundBytes > 0`, or pass `-BackupDir ./backups`. |
+| **Tier 1: Zero-Risk Cleanup** | `-CleanOrphanPb -CleanTmpAndLogs -CleanBrowser` | **NONE** | Orphaned `.pb` states, `tmp/`, `cache/`, `log/`, `crashes/`, browser recordings, raw `steps/` & `tasks/` logs in inactive kept chats across `antigravity/` and `antigravity-ide/`. | Safe to execute autonomously anytime without losing any conversation history or code. |
+| **Tier 2: Standard + Caches & Migration Backup** | Tier 1 + `-CleanTrackers -CleanScratch -CleanBackup` | **LOW** | Adds `implicit/`, `code_tracker/`, `context_state/` (rebuilt automatically), `scratch/` temporary folders, and `antigravity-backup/` legacy migration archive. | Recommended when the user wants significant space recovery without losing recent project chats. |
+| **Tier 3: Conversation Quota Pruning** | `-CleanConversations` (Default) | **MODERATE** | Deletes empty sessions, completed subagents, and conversations older than the top `KeepPerProject` (default `2`) per project per surface. | Use when pruning old chat history. Add `-BackupDir ./backups` if the user wants a `.zip` archive before deletion. |
+| **Tier 4: Full Deep Clean** | `-DeepClean` | **MODERATE** | Enables **all** options above (`1` through `8`), including `playground/`. | Verify with the user before deleting `playground/` if `playgroundBytes > 0`, or pass `-BackupDir ./backups`. |
 
 ---
 
@@ -96,21 +103,22 @@ When a user asks an agent to "clean up Antigravity", "free disk space in `.gemin
 | **2** | `-MaxAgeDays <int>` | `--max-age-days <int>` | `int` | `0` | Protect conversations active within the last `N` days even if over quota (`0` = disabled). |
 | **3** | `-ActiveGuardMinutes <int>` | `--active-guard-minutes <int>` | `int` | `15` | Protect sessions modified within the last `N` minutes (`1` to `1440`). |
 | **4** | `-CleanConversations` | `--clean-conversations` | `switch` | Auto* | Clean over-quota conversations, empty sessions, and paired `.pb` files (*enabled by default if no granular flag is passed). |
-| **5** | `-CleanOrphanPb` | `--clean-orphan-pb` | `switch` | Auto* | Clean orphaned `.pb` files in `antigravity/conversations/` missing from `brain/` (**Risk: NONE**). |
+| **5** | `-CleanOrphanPb` | `--clean-orphan-pb` | `switch` | Auto* | Clean orphaned `.pb` files in `conversations/` missing from `brain/` (**Risk: NONE**). |
 | **6** | `-CleanTmpAndLogs` | `--clean-tmp-and-logs` | `switch` | `false` | Clean `tmp`, `cache`, `log`, `crashes`, and raw `steps`/`tasks` logs (**Risk: NONE**). |
-| **7** | `-CleanBrowser` | `--clean-browser` | `switch` | `false` | Clean `antigravity/browser_recordings` (**Risk: NONE**). |
+| **7** | `-CleanBrowser` | `--clean-browser` | `switch` | `false` | Clean `browser_recordings` (**Risk: NONE**). |
 | **8** | `-CleanTrackers` | `--clean-trackers` | `switch` | `false` | Clean `code_tracker`, `implicit`, and `context_state` (**Risk: LOW**). |
-| **9** | `-CleanScratch` | `--clean-scratch` | `switch` | `false` | Clean `antigravity/scratch` temporary workspaces (**Risk: LOW**). |
-| **10** | `-CleanPlayground` | `--clean-playground` | `switch` | `false` | Clean `antigravity/playground` sandbox projects (**Risk: MODERATE**). |
-| **11** | `-DeepClean` | `--deep-clean` | `switch` | `false` | Enable all 7 cleanup modules (`4` through `10`) simultaneously. |
-| **12** | `-PruneOrphanProjects` | `--prune-orphan-projects` | `switch` | `false` | Also delete conversations whose project directory no longer exists on disk. |
-| **13** | `-ProjectFilter <regex>` | `--project-filter <regex>` | `string` | `""` | Filter conversations by project name or path regex. |
-| **14** | `-BackupDir <path>` | `--backup-dir <path>` | `string` | `""` | Create a timestamped `.zip` backup of `brain/` conversations before deleting them. |
-| **15** | `-GeminiRoot <path>` | `--gemini-root <path>` | `string` | `~/.gemini` | Override the target `.gemini` root directory path. |
-| **16** | `-Lang <en\|fr>` | `--lang <en\|fr>` | `string` | `en` | Output language (`en` for English, `fr` for French). |
-| **17** | `-Json` | `--json` | `switch` | `false` | Emit a structured JSON object instead of console tables. |
-| **18** | `-Execute` | `--execute` | `switch` | `false` | Perform actual deletion (omit for Dry-Run simulation). |
-| **19** | `-Force` | `--force` | `switch` | `false` | Skip interactive `(y/N)` confirmation prompt (**Required for AI agents**). |
+| **9** | `-CleanScratch` | `--clean-scratch` | `switch` | `false` | Clean `scratch` temporary workspaces (**Risk: LOW**). |
+| **10** | `-CleanPlayground` | `--clean-playground` | `switch` | `false` | Clean `playground` sandbox projects (**Risk: MODERATE**). |
+| **11** | `-CleanBackup` | `--clean-backup` | `switch` | `false` | Clean `~/.gemini/antigravity-backup` legacy migration archive (**Risk: LOW**). |
+| **12** | `-DeepClean` | `--deep-clean` | `switch` | `false` | Enable all 8 cleanup modules (`4` through `11`) simultaneously. |
+| **13** | `-PruneOrphanProjects` | `--prune-orphan-projects` | `switch` | `false` | Also delete conversations whose project directory no longer exists on disk. |
+| **14** | `-ProjectFilter <regex>` | `--project-filter <regex>` | `string` | `""` | Filter conversations by project name or path regex. |
+| **15** | `-BackupDir <path>` | `--backup-dir <path>` | `string` | `""` | Create a timestamped `.zip` backup of `brain/` conversations before deleting them. |
+| **16** | `-GeminiRoot <path>` | `--gemini-root <path>` | `string` | `~/.gemini` | Override the target `.gemini` root directory path. |
+| **17** | `-Lang <en\|fr>` | `--lang <en\|fr>` | `string` | `en` | Output language (`en` for English, `fr` for French). |
+| **18** | `-Json` | `--json` | `switch` | `false` | Emit a structured JSON object instead of console tables. |
+| **19** | `-Execute` | `--execute` | `switch` | `false` | Perform actual deletion (omit for Dry-Run simulation). |
+| **20** | `-Force` | `--force` | `switch` | `false` | Skip interactive `(y/N)` confirmation prompt (**Required for AI agents**). |
 
 ---
 
@@ -122,18 +130,19 @@ When a user asks an agent to "clean up Antigravity", "free disk space in `.gemin
   "mode": "dry-run",
   "geminiRoot": "/Users/dev/.gemini",
   "keepPerProject": 2,
-  "totalPlannedBytes": 422604,
-  "totalPlannedFormatted": "412.7 KB",
-  "totalDeepCleanBytes": 422604,
-  "totalDeepCleanFormatted": "412.7 KB",
+  "totalPlannedBytes": 771125248,
+  "totalPlannedFormatted": "735.4 MB",
+  "totalDeepCleanBytes": 1359125248,
+  "totalDeepCleanFormatted": "1.27 GB",
   "categories": {
-    "conversationsBytes": 0,
-    "orphanPbBytes": 0,
+    "conversationsBytes": 380108800,
+    "orphanPbBytes": 391016448,
     "tmpAndLogsBytes": 422604,
     "browserBytes": 0,
-    "trackersBytes": 0,
+    "trackersBytes": 29989273,
     "scratchBytes": 0,
-    "playgroundBytes": 0
+    "playgroundBytes": 0,
+    "backupBytes": 558388224
   },
   "conversations": [...],
   "orphanPbFiles": [...],
