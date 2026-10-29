@@ -217,7 +217,7 @@ See **[`AGENT.md`](./AGENT.md)** for the full agent decision tree and JSON schem
 
 ## 🇫🇷 Documentation en Français
 
-> 🌐 **Navigation** : **[🇬🇧 English Documentation](#overview)** | **[🤖 Guide Agent IA (`AGENT.md`)](./AGENT.md#guide-op%C3%A9rationnel-pour-agents-ia-fran%C3%A7ais)**
+> 🌐 **Navigation** : **[🇬🇧 English Documentation](#overview)** | **[🤖 Guide Agent IA (`AGENT.md`)](./AGENT.md)**
 
 ### Présentation
 
@@ -399,7 +399,7 @@ python3 clean-antigravity.py --lang fr --json
 python3 clean-antigravity.py --lang fr --clean-orphan-pb --clean-tmp-and-logs --clean-browser --execute --force
 ```
 
-Consultez **[`AGENT.md`](./AGENT.md#guide-op%C3%A9rationnel-pour-agents-ia-fran%C3%A7ais)** pour l'arbre de décision complet et le schéma JSON.
+Consultez **[`AGENT.md`](./AGENT.md)** pour l'arbre de décision complet et le schéma JSON.
 
 ---
 
