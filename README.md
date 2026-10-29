@@ -25,7 +25,9 @@ A cross-platform directory tree auditor, risk evaluator, and modular disk-space 
 - **🇫🇷 Documentation en Français**
   - [Présentation](#pr%C3%A9sentation)
   - [Fonctionnalités Clés](#fonctionnalit%C3%A9s-cl%C3%A9s)
+  - [Architecture Multiplateforme](#architecture-multiplateforme)
   - [Démarrage Rapide (Windows, macOS, Linux)](#d%C3%A9marrage-rapide-windows-macos-linux)
+  - [Fonctionnement de l'Audit en 4 Étapes](#fonctionnement-de-laudit-en-4-%C3%A9tapes)
   - [Modules de Nettoyage & Niveaux de Risque](#modules-de-nettoyage--niveaux-de-risque)
   - [Options & Paramètres CLI](#options--param%C3%A8tres-cli)
   - [Utilisation par les Agents IA (`AGENT.md`)](#utilisation-par-les-agents-ia-agentmd)
@@ -65,14 +67,14 @@ As you work with **Google Antigravity IDE** and **Gemini**, the `~/.gemini` fold
 
 To ensure seamless execution on **every operating system and terminal**, this repository provides:
 
-| File | Description | Target OS & Shell |
-| :--- | :--- | :--- |
-| [`clean-antigravity.ps1`](./clean-antigravity.ps1) | Main PowerShell script (**English default**, supports `-Lang fr`) | Windows, macOS, Linux (`pwsh` 7+ or Windows `powershell` 5.1) |
-| [`clean-antigravity.fr.ps1`](./clean-antigravity.fr.ps1) | French PowerShell entrypoint (**French default**, supports `-Lang en`) | Windows, macOS, Linux (`pwsh` 7+ or Windows `powershell` 5.1) |
-| [`clean-antigravity.py`](./clean-antigravity.py) | Zero-dependency Python 3 implementation (accepts both `--posix` and `-PowerShell` flags) | Windows, macOS, Linux (`python3` / `python` 3.8+) |
-| [`clean-antigravity.sh`](./clean-antigravity.sh) | Universal POSIX shell launcher (auto-detects `python3` or `pwsh`) | macOS, Linux, WSL, Git Bash (`sh`, `bash`, `zsh`) |
-| [`clean-antigravity.cmd`](./clean-antigravity.cmd) | Universal Windows batch launcher (auto-detects `pwsh`, `powershell`, or `python`) | Windows Command Prompt (`cmd.exe`) |
-| [`AGENT.md`](./AGENT.md) | Operational guide & JSON schema for AI Coding Agents | All AI Agents (Antigravity, Claude Code, Cursor, etc.) |
+| # | File | Description | Target OS & Shell |
+| :-: | :--- | :--- | :--- |
+| **1** | [`clean-antigravity.ps1`](./clean-antigravity.ps1) | Main PowerShell script (**English default**, supports `-Lang fr`) | Windows, macOS, Linux (`pwsh` 7+ or Windows `powershell` 5.1) |
+| **2** | [`clean-antigravity.fr.ps1`](./clean-antigravity.fr.ps1) | French PowerShell entrypoint (**French default**, supports `-Lang en`) | Windows, macOS, Linux (`pwsh` 7+ or Windows `powershell` 5.1) |
+| **3** | [`clean-antigravity.py`](./clean-antigravity.py) | Zero-dependency Python 3 implementation (accepts both `--posix` and `-PowerShell` flags) | Windows, macOS, Linux (`python3` / `python` 3.8+) |
+| **4** | [`clean-antigravity.sh`](./clean-antigravity.sh) | Universal POSIX shell launcher (auto-detects `python3` or `pwsh`) | macOS, Linux, WSL, Git Bash (`sh`, `bash`, `zsh`) |
+| **5** | [`clean-antigravity.cmd`](./clean-antigravity.cmd) | Universal Windows batch launcher (auto-detects `pwsh`, `powershell`, or `python`) | Windows Command Prompt (`cmd.exe`) |
+| **6** | [`AGENT.md`](./AGENT.md) | Operational guide & JSON schema for AI Coding Agents | All AI Agents (Antigravity, Claude Code, Cursor, etc.) |
 
 ---
 
@@ -172,27 +174,27 @@ Every run performs a transparent 4-stage inspection before asking for confirmati
 
 Both PowerShell (`-PascalCase`) and POSIX (`--kebab-case`) flags are supported by `clean-antigravity.py` and `clean-antigravity.sh`:
 
-| PowerShell Parameter | POSIX / Python Flag | Default | Description |
-| :--- | :--- | :---: | :--- |
-| `-KeepPerProject <int>` | `--keep-per-project <int>` | `2` | Number of most recent real user conversations to retain per project. |
-| `-MaxAgeDays <int>` | `--max-age-days <int>` | `0` | Protect conversations active within the last `N` days regardless of quota (`0` = disabled). |
-| `-ActiveGuardMinutes <int>` | `--active-guard-minutes <int>` | `15` | Protect sessions modified within the last `N` minutes from deletion. |
-| `-CleanConversations` | `--clean-conversations` | Auto* | Clean out-of-quota conversations & empty sessions (*default when no `-Clean*` switch is set). |
-| `-CleanOrphanPb` | `--clean-orphan-pb` | Auto* | Clean orphaned `.pb` state files (*default when no `-Clean*` switch is set). |
-| `-CleanTmpAndLogs` | `--clean-tmp-and-logs` | `false` | Clean temporary directories, caches, crash dumps, and raw `steps`/`tasks` logs. |
-| `-CleanBrowser` | `--clean-browser` | `false` | Clean browser recordings and video captures. |
-| `-CleanTrackers` | `--clean-trackers` | `false` | Clean `implicit`, `code_tracker`, and `context_state`. |
-| `-CleanScratch` | `--clean-scratch` | `false` | Clean `antigravity/scratch` temporary workspaces. |
-| `-CleanPlayground` | `--clean-playground` | `false` | Clean `antigravity/playground` sandbox projects. |
-| `-DeepClean` | `--deep-clean` | `false` | Enable all 7 cleanup modules simultaneously. |
-| `-PruneOrphanProjects` | `--prune-orphan-projects` | `false` | Also delete conversations whose project folder no longer exists on disk. |
-| `-ProjectFilter <regex>` | `--project-filter <regex>` | `""` | Only analyze/clean conversations matching the project name or path regex. |
-| `-BackupDir <path>` | `--backup-dir <path>` | `""` | Create a `.zip` archive of conversations before deleting them. |
-| `-GeminiRoot <path>` | `--gemini-root <path>` | `~/.gemini` | Custom path to the `.gemini` directory. |
-| `-Lang <en\|fr>` | `--lang <en\|fr>` | `en` | Output language (`en` for English, `fr` for French). |
-| `-Json` | `--json` | `false` | Output a structured JSON report for AI agents and scripts. |
-| `-Execute` | `--execute` | `false` | Execute actual deletion (otherwise runs in Dry-Run simulation mode). |
-| `-Force` | `--force` | `false` | Skip interactive `(y/N)` confirmation prompt. |
+| # | PowerShell Parameter | POSIX / Python Flag | Default | Description |
+| :-: | :--- | :--- | :---: | :--- |
+| **1** | `-KeepPerProject <int>` | `--keep-per-project <int>` | `2` | Number of most recent real user conversations to retain per project (`0` to `100`). |
+| **2** | `-MaxAgeDays <int>` | `--max-age-days <int>` | `0` | Protect conversations active within the last `N` days regardless of quota (`0` = disabled). |
+| **3** | `-ActiveGuardMinutes <int>` | `--active-guard-minutes <int>` | `15` | Protect sessions modified within the last `N` minutes from deletion (`1` to `1440`). |
+| **4** | `-CleanConversations` | `--clean-conversations` | Auto* | Clean out-of-quota conversations & empty sessions (*default when no `-Clean*` switch is set). |
+| **5** | `-CleanOrphanPb` | `--clean-orphan-pb` | Auto* | Clean orphaned `.pb` state files (*default when no `-Clean*` switch is set). |
+| **6** | `-CleanTmpAndLogs` | `--clean-tmp-and-logs` | `false` | Clean temporary directories, caches, crash dumps, and raw `steps`/`tasks` logs. |
+| **7** | `-CleanBrowser` | `--clean-browser` | `false` | Clean browser recordings and video captures (`antigravity/browser_recordings`). |
+| **8** | `-CleanTrackers` | `--clean-trackers` | `false` | Clean `implicit`, `code_tracker`, and `context_state` indexing folders. |
+| **9** | `-CleanScratch` | `--clean-scratch` | `false` | Clean `antigravity/scratch` temporary workspaces. |
+| **10** | `-CleanPlayground` | `--clean-playground` | `false` | Clean `antigravity/playground` sandbox projects. |
+| **11** | `-DeepClean` | `--deep-clean` | `false` | Enable all 7 cleanup modules (`4` through `10`) simultaneously. |
+| **12** | `-PruneOrphanProjects` | `--prune-orphan-projects` | `false` | Also delete conversations whose project folder no longer exists on disk. |
+| **13** | `-ProjectFilter <regex>` | `--project-filter <regex>` | `""` | Only analyze/clean conversations matching the project name or path regex. |
+| **14** | `-BackupDir <path>` | `--backup-dir <path>` | `""` | Create a `.zip` archive of conversations before deleting them. |
+| **15** | `-GeminiRoot <path>` | `--gemini-root <path>` | `~/.gemini` | Custom path to the `.gemini` root directory. |
+| **16** | `-Lang <en\|fr>` | `--lang <en\|fr>` | `en` | Output language (`en` for English, `fr` for French). |
+| **17** | `-Json` | `--json` | `false` | Output a structured JSON report for AI agents and automated scripts. |
+| **18** | `-Execute` | `--execute` | `false` | Execute actual deletion (otherwise runs in Dry-Run simulation mode). |
+| **19** | `-Force` | `--force` | `false` | Skip interactive `(y/N)` confirmation prompt. |
 
 ---
 
@@ -222,48 +224,66 @@ See **[`AGENT.md`](./AGENT.md)** for the full agent decision tree and JSON schem
 **Antigravity & Gemini Cleaner (`agy-clean`)** est un outil communautaire multiplateforme (**Windows, macOS, Linux**) d'audit d'arborescence, d'évaluation des risques et de nettoyage modulaire pour **Google Antigravity IDE** (`~/.gemini/antigravity`) et **Gemini CLI** (`~/.gemini`).
 
 Au fil des sessions, le dossier `~/.gemini` accumule plusieurs gigaoctets de données :
-- Les historiques, artefacts et journaux bruts de conversations (`antigravity/brain/`)
-- Les fichiers d'état Protobuf (`antigravity/conversations/*.pb`), souvent orphelins après la suppression manuelle de sessions
-- Les captures vidéo du navigateur (`antigravity/browser_recordings/`)
-- Les index et snapshots de code (`code_tracker/`, `implicit/`, `context_state/`)
+- Les historiques complets, artefacts et journaux bruts d'étapes/tâches des conversations (`antigravity/brain/`)
+- Les fichiers d'état de session Protobuf (`antigravity/conversations/*.pb`), souvent laissés orphelins même après la suppression de dossiers dans `brain/`
+- Les captures vidéo du navigateur et enregistrements Playwright (`antigravity/browser_recordings/`)
+- Les index implicites et snapshots de suivi de code (`code_tracker/`, `implicit/`, `context_state/`)
 - Les espaces de travail temporaires (`antigravity/scratch/`) et les prototypes bacs à sable (`antigravity/playground/`)
+
+**`Antigravity-Clean`** vous offre une **visibilité à 100 %** sur `~/.gemini` avant la moindre suppression, en classant chaque dossier et chaque conversation par projet, sujet, taille et niveau de risque.
 
 ---
 
 ### Fonctionnalités Clés
 
-1. **Mode Simulation (Dry-Run) par défaut** : Tant que l'option `-Execute` (`--execute`) n'est pas spécifiée, aucun fichier n'est supprimé. L'outil affiche un bilan complet en 4 étapes.
-2. **Gestion intelligente des quotas par projet (`-KeepPerProject 2`)** :
-   - Conserve les `N` vraies conversations les plus récentes pour chaque projet.
-   - **Purge automatique des sessions vides** : Toute `(Session vide / initialisee)` est marquée `SUPPRIMER [SESSION VIDE]` sans consommer le quota des vraies conversations.
-   - **Isolation des sous-agents (`[Agent]`)** : Les sous-agents ne volent jamais l'un des slots du quota principal de l'utilisateur.
-   - **Protection de la session active (`-ActiveGuardMinutes 15`)** : Toute session modifiée durant les 15 dernières minutes est verrouillée en `CONSERVER [ACTIF]`.
-3. **Synchronisation `brain/` + `conversations/*.pb`** : Supprime simultanément le dossier `brain/<id>` et son fichier `.pb` associé, et détecte les `.pb` orphelins.
-4. **Exécution universelle dans tous les terminaux** :
-   - En **Français natif** via [`clean-antigravity.fr.ps1`](./clean-antigravity.fr.ps1) ou avec l'option `--lang fr` / `-Lang fr`.
-   - En **Anglais par défaut** via [`clean-antigravity.ps1`](./clean-antigravity.ps1), [`clean-antigravity.py`](./clean-antigravity.py), [`clean-antigravity.sh`](./clean-antigravity.sh) et [`clean-antigravity.cmd`](./clean-antigravity.cmd).
+- **🛡️ Mode Simulation (Dry-Run) par défaut** : Tant que l'option `-Execute` (`--execute`) n'est pas spécifiée, l'outil effectue une simulation en lecture seule et affiche un rapport d'audit complet en 4 étapes.
+- **🧠 Gestion intelligente des quotas de conversations par projet** :
+  - Extrait automatiquement le **nom du projet** et le **sujet de la conversation** depuis `transcript.jsonl` ou les artefacts Markdown.
+  - Conserve les `N` vraies conversations utilisateur les plus récentes par projet (`-KeepPerProject 2` par défaut).
+  - **Purge automatique des sessions vides** : Toute session initialisée sans requête utilisateur ni artefact `(Session vide / initialisee)` est marquée automatiquement comme `SUPPRIMER [SESSION VIDE]` sans consommer le quota `KeepPerProject`.
+  - **Protection du quota face aux sous-agents** : Les exécutions de sous-agents en arrière-plan (`[Agent]`) ne volent jamais l'un des emplacements du quota principal de vos vraies conversations.
+  - **Protection de la session active** : Toute session modifiée au cours des `15` dernières minutes (`-ActiveGuardMinutes 15`) est verrouillée en `CONSERVER [ACTIF]` afin que vous (ou un agent IA) puissiez exécuter le nettoyage en toute sécurité depuis une session Antigravity ouverte.
+- **🔗 Nettoyage synchronisé `brain/` + `.pb`** : Supprime simultanément le dossier `brain/<id>` et son fichier d'état `conversations/<id>.pb` associé, et détecte les fichiers `.pb` orphelins dont le dossier `brain/` n'existe plus.
+- **🧩 Nettoyage modulaire à la carte ou complet** : Ciblez uniquement les catégories sans aucun risque (`-CleanOrphanPb`, `-CleanTmpAndLogs`, `-CleanBrowser`), les caches à faible risque (`-CleanTrackers`, `-CleanScratch`), ou lancez un nettoyage complet (`-DeepClean`).
+- **🌍 Véritablement multiplateforme & bilingue** : Fonctionne nativement sur **Windows, macOS et Linux** via Python 3, PowerShell, `sh`/`bash`/`zsh` ou Windows `cmd.exe`, en **anglais** (par défaut) ou en **français** (`--lang fr` / `-Lang fr` ou via `clean-antigravity.fr.ps1`).
+- **🤖 Conçu pour les Agents IA** : Inclut [`AGENT.md`](./AGENT.md) ainsi qu'un mode de sortie JSON structuré (`-Json` / `--json`) pour l'exécution autonome par des agents de code.
+
+---
+
+### Architecture Multiplateforme
+
+Pour garantir une exécution fluide sur **tous les systèmes d'exploitation et terminaux**, ce dépôt fournit :
+
+| # | Fichier | Description | OS & Terminal Cible |
+| :-: | :--- | :--- | :--- |
+| **1** | [`clean-antigravity.ps1`](./clean-antigravity.ps1) | Script PowerShell principal (**Anglais par défaut**, supporte `-Lang fr`) | Windows, macOS, Linux (`pwsh` 7+ ou Windows `powershell` 5.1) |
+| **2** | [`clean-antigravity.fr.ps1`](./clean-antigravity.fr.ps1) | Point d'entrée PowerShell français (**Français par défaut**, supporte `-Lang en`) | Windows, macOS, Linux (`pwsh` 7+ ou Windows `powershell` 5.1) |
+| **3** | [`clean-antigravity.py`](./clean-antigravity.py) | Implémentation Python 3 zéro-dépendance (accepte les flags `--posix` et `-PowerShell`) | Windows, macOS, Linux (`python3` / `python` 3.8+) |
+| **4** | [`clean-antigravity.sh`](./clean-antigravity.sh) | Lanceur shell POSIX universel (détecte automatiquement `python3` ou `pwsh`) | macOS, Linux, WSL, Git Bash (`sh`, `bash`, `zsh`) |
+| **5** | [`clean-antigravity.cmd`](./clean-antigravity.cmd) | Lanceur batch Windows universel (détecte `pwsh`, `powershell` ou `python`) | Invite de commandes Windows (`cmd.exe`) |
+| **6** | [`AGENT.md`](./AGENT.md) | Guide opérationnel et schéma JSON pour les Agents IA de programmation | Tous les Agents IA (Antigravity, Claude Code, Cursor, etc.) |
 
 ---
 
 ### Démarrage Rapide (Windows, macOS, Linux)
 
-#### 1. Lancer un audit en mode Simulation (en Français)
+#### 1. Audit seul (Mode Simulation Dry-Run — Ne supprime rien)
 
-**Sous Windows (PowerShell) :**
-```powershell
-.\clean-antigravity.fr.ps1
-# ou via le script principal :
-.\clean-antigravity.ps1 -Lang fr
-```
-
-**Sous macOS / Linux / WSL / Git Bash :**
+**macOS / Linux / WSL / Git Bash (Terminal) :**
 ```bash
 ./clean-antigravity.sh --lang fr
 # ou directement avec Python 3 :
 python3 clean-antigravity.py --lang fr
 ```
 
-**Sous Windows (Invite de commandes `cmd.exe`) :**
+**Windows (PowerShell) :**
+```powershell
+.\clean-antigravity.fr.ps1
+# ou via le script principal :
+.\clean-antigravity.ps1 -Lang fr
+```
+
+**Windows (Invite de commandes `cmd.exe`) :**
 ```cmd
 clean-antigravity.cmd -Lang fr
 ```
@@ -272,88 +292,117 @@ clean-antigravity.cmd -Lang fr
 
 #### 2. Nettoyage 100 % SANS RISQUE (Orphelins `.pb` + Tmp/Logs + Captures Navigateur)
 
-Ne touche à aucune conversation conservée ni hors-quota ; purge uniquement les fichiers techniques et orphelins :
+Purge uniquement les caches techniques, journaux, captures vidéo navigateur et fichiers `.pb` orphelins sans toucher aux conversations conservées ni hors-quota :
 
-```powershell
-# PowerShell :
-.\clean-antigravity.fr.ps1 -CleanOrphanPb -CleanTmpAndLogs -CleanBrowser -Execute
-```
+**macOS / Linux / Tout OS (Python / Shell) :**
 ```bash
-# macOS / Linux / Python :
 ./clean-antigravity.sh --lang fr --clean-orphan-pb --clean-tmp-and-logs --clean-browser --execute
 ```
 
+**Windows / Multiplateforme (PowerShell) :**
+```powershell
+.\clean-antigravity.fr.ps1 -CleanOrphanPb -CleanTmpAndLogs -CleanBrowser -Execute
+```
+
 ---
 
-#### 3. Nettoyage Standard + Scratch
+#### 3. Nettoyage Standard + Espaces Scratch
 
-Purge les conversations hors-quota, les sessions vides, les `.pb` orphelins et le dossier `antigravity/scratch` :
+Nettoie les conversations hors-quota (en conservant les 2 vraies conversations les plus récentes par projet), les sessions vides, les `.pb` orphelins et le dossier `antigravity/scratch` :
 
-```powershell
-# PowerShell :
-.\clean-antigravity.fr.ps1 -CleanConversations -CleanScratch -Execute
-```
 ```bash
 # macOS / Linux / Python :
 ./clean-antigravity.sh --lang fr --clean-conversations --clean-scratch --execute
+
+# PowerShell :
+.\clean-antigravity.fr.ps1 -CleanConversations -CleanScratch -Execute
 ```
 
 ---
 
-#### 4. Nettoyage Complet (`-DeepClean`) avec sauvegarde ZIP
+#### 4. Nettoyage Complet (`-DeepClean`) avec sauvegarde ZIP optionnelle
 
-Active toutes les options de nettoyage simultanément et crée une archive `.zip` des conversations avant suppression :
+Purge les 7 catégories (conversations hors-quota, `.pb` orphelins, tmp/logs, captures navigateur, trackers, scratch et playground) en sauvegardant au préalable les conversations supprimées dans `./backups` :
 
-```powershell
-# PowerShell :
-.\clean-antigravity.fr.ps1 -DeepClean -BackupDir .\backups -Execute
-```
 ```bash
 # macOS / Linux / Python :
 ./clean-antigravity.sh --lang fr --deep-clean --backup-dir ./backups --execute
+
+# PowerShell :
+.\clean-antigravity.fr.ps1 -DeepClean -BackupDir .\backups -Execute
 ```
+
+---
+
+### Fonctionnement de l'Audit en 4 Étapes
+
+Chaque exécution réalise une inspection transparente en 4 étapes avant toute demande de confirmation :
+
+1. **`[1/4]` Arborescence de `~/.gemini`** : Liste les dossiers de premier niveau et les sous-dossiers `antigravity/*` triés par taille, avec leur `Statut`, `Taille`, `Fichiers`, `Risque` et `Rôle`. Les dossiers critiques du système (`bin`, `builtin`, `mcp`, `global_workflows`, `knowledge`, `settings.json`, `oauth_creds.json`) sont strictement marqués `CONSERVER` et ne sont jamais modifiés.
+2. **`[2/4]` Conversations par Projet & Sujet** : Regroupe les sessions `antigravity/brain/*` selon la racine de leur projet résolu (`.git`, `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`) et affiche leur sujet extrait, la date de dernière activité, la taille dans `brain/` et la taille du fichier `.pb` associé.
+3. **`[3/4]` Détection des fichiers `.pb` orphelins** : Analyse `antigravity/conversations/` pour identifier les fichiers `.pb` qui n'ont plus de dossier correspondant dans `antigravity/brain/`.
+4. **`[4/4]` Caches modulaires & Aperçu détaillé** : Liste toutes les cibles de cache optionnelles et affiche le détail des sous-dossiers les plus volumineux de `antigravity/scratch` et `antigravity/playground` afin de ne jamais supprimer un prototype à l'aveugle.
 
 ---
 
 ### Modules de Nettoyage & Niveaux de Risque
 
-| # | Option CLI | Cibles | Niveau de Risque | Description |
+| # | Option CLI | Chemins Ciblés | Niveau de Risque | Impact & Sécurité |
 | :-: | :--- | :--- | :---: | :--- |
-| **1** | `-CleanConversations`<br>`--clean-conversations` | `antigravity/brain/*` + `.pb` associés | **MODÉRÉ** | Supprime les sessions vides, les sous-agents terminés et les chats au-delà du Top `KeepPerProject` (défaut : `2`). |
-| **2** | `-CleanOrphanPb`<br>`--clean-orphan-pb` | `antigravity/conversations/*.pb` | **AUCUN** | Supprime uniquement les états `.pb` orphelins dont le dossier `brain/` n'existe plus. |
-| **3** | `-CleanTmpAndLogs`<br>`--clean-tmp-and-logs` | `log`, `cache`, `crashes`, `tmp`, `steps`, `tasks` | **AUCUN** | Purge les caches, journaux et logs bruts `steps`/`tasks` tout en gardant `transcript.jsonl` intact. |
-| **4** | `-CleanBrowser`<br>`--clean-browser` | `antigravity/browser_recordings` | **AUCUN** | Supprime les vidéos et captures de tests navigateur passés. |
-| **5** | `-CleanTrackers`<br>`--clean-trackers` | `implicit`, `code_tracker`, `context_state` | **FAIBLE** | Supprime les index et snapshots de contexte (reconstruits automatiquement par l'IDE). |
-| **6** | `-CleanScratch`<br>`--clean-scratch` | `antigravity/scratch` | **FAIBLE** | Supprime les espaces de travail temporaires hors-projet. |
-| **7** | `-CleanPlayground`<br>`--clean-playground` | `antigravity/playground` | **MODÉRÉ** | Supprime les projets bacs à sable (vérifiez l'aperçu `[4/4]` avant suppression). |
+| **1** | `-CleanConversations`<br>`--clean-conversations` | `antigravity/brain/*` + `conversations/*.pb` associés | **MODÉRÉ** | Supprime les sessions vides, les sous-agents terminés et les chats au-delà du Top `KeepPerProject` (défaut : `2`). Les sessions actives sont protégées. |
+| **2** | `-CleanOrphanPb`<br>`--clean-orphan-pb` | `antigravity/conversations/*.pb` (orphelins) | **AUCUN** | Supprime uniquement les fichiers `.pb` dont le dossier de conversation `brain/` a déjà été supprimé. |
+| **3** | `-CleanTmpAndLogs`<br>`--clean-tmp-and-logs` | `antigravity/{log,cache,crashes}`, `~/.gemini/{tmp,cache,logs}`, `brain/*/.system_generated/{steps,tasks}` | **AUCUN** | Purge les logs bruts `steps`/`tasks` et caches temporaires tout en gardant `transcript.jsonl` et les artefacts Markdown intacts dans les conversations conservées. |
+| **4** | `-CleanBrowser`<br>`--clean-browser` | `antigravity/browser_recordings` | **AUCUN** | Supprime les anciennes vidéos et captures d'écran des tests navigateur Playwright. |
+| **5** | `-CleanTrackers`<br>`--clean-trackers` | `antigravity/{implicit,code_tracker,context_state}` | **FAIBLE** | Supprime les snapshots locaux d'indexation de code ; reconstruits automatiquement par l'IDE Antigravity. |
+| **6** | `-CleanScratch`<br>`--clean-scratch` | `antigravity/scratch` | **FAIBLE** | Supprime les espaces de travail temporaires créés hors projet. |
+| **7** | `-CleanPlayground`<br>`--clean-playground` | `antigravity/playground` | **MODÉRÉ** | Supprime les projets prototypes bacs à sable. Vérifiez l'aperçu détaillé à l'étape `[4/4]` avant de l'activer. |
 
 ---
 
 ### Options & Paramètres CLI
 
-| Paramètre PowerShell | Option POSIX / Python | Défaut | Description |
-| :--- | :--- | :---: | :--- |
-| `-KeepPerProject <int>` | `--keep-per-project <int>` | `2` | Nombre de vraies conversations les plus récentes à conserver par projet. |
-| `-MaxAgeDays <int>` | `--max-age-days <int>` | `0` | Protège les conversations actives au cours des `N` derniers jours (`0` = désactivé). |
-| `-ActiveGuardMinutes <int>` | `--active-guard-minutes <int>` | `15` | Protège les sessions modifiées au cours des `N` dernières minutes. |
-| `-PruneOrphanProjects` | `--prune-orphan-projects` | `false` | Supprime aussi les conversations dont le dossier de projet a été supprimé du disque. |
-| `-ProjectFilter <regex>` | `--project-filter <regex>` | `""` | Filtre l'audit et le nettoyage sur un nom ou chemin de projet spécifique. |
-| `-BackupDir <chemin>` | `--backup-dir <chemin>` | `""` | Crée une sauvegarde `.zip` des conversations avant leur suppression. |
-| `-GeminiRoot <chemin>` | `--gemini-root <chemin>` | `~/.gemini` | Chemin personnalisé vers le répertoire `.gemini`. |
-| `-Lang <en\|fr>` | `--lang <en\|fr>` | `en` / `fr` | Langue d'affichage (`en` par défaut sur `.ps1`/`.py`, `fr` par défaut sur `.fr.ps1`). |
-| `-Json` | `--json` | `false` | Produit une sortie JSON structurée pour les agents IA et scripts. |
-| `-Execute` | `--execute` | `false` | Exécute réellement la suppression (sinon mode Simulation Dry-Run). |
-| `-Force` | `--force` | `false` | Désactive la demande de confirmation interactive `(o/N)`. |
+Les deux styles d'options — PowerShell (`-PascalCase`) et POSIX (`--kebab-case`) — sont pris en charge par `clean-antigravity.py` et `clean-antigravity.sh` :
+
+| # | Paramètre PowerShell | Option POSIX / Python | Défaut | Description |
+| :-: | :--- | :--- | :---: | :--- |
+| **1** | `-KeepPerProject <int>` | `--keep-per-project <int>` | `2` | Nombre de vraies conversations utilisateur les plus récentes à conserver par projet (`0` à `100`). |
+| **2** | `-MaxAgeDays <int>` | `--max-age-days <int>` | `0` | Protège les conversations actives au cours des `N` derniers jours même hors-quota (`0` = désactivé). |
+| **3** | `-ActiveGuardMinutes <int>` | `--active-guard-minutes <int>` | `15` | Protège de toute suppression les sessions modifiées au cours des `N` dernières minutes (`1` à `1440`). |
+| **4** | `-CleanConversations` | `--clean-conversations` | Auto* | Nettoie les conversations hors-quota, les sessions vides et leurs `.pb` associés (*actif par défaut si aucun switch `-Clean*` n'est précisé). |
+| **5** | `-CleanOrphanPb` | `--clean-orphan-pb` | Auto* | Nettoie uniquement les fichiers d'état `.pb` orphelins dans `antigravity/conversations/` (*actif par défaut si aucun switch `-Clean*` n'est précisé). |
+| **6** | `-CleanTmpAndLogs` | `--clean-tmp-and-logs` | `false` | Nettoie les dossiers temporaires, caches, crash dumps et logs bruts `steps`/`tasks`. |
+| **7** | `-CleanBrowser` | `--clean-browser` | `false` | Nettoie les vidéos et captures du navigateur (`antigravity/browser_recordings`). |
+| **8** | `-CleanTrackers` | `--clean-trackers` | `false` | Nettoie les dossiers d'indexation `implicit`, `code_tracker` et `context_state`. |
+| **9** | `-CleanScratch` | `--clean-scratch` | `false` | Nettoie les espaces de travail temporaires dans `antigravity/scratch`. |
+| **10** | `-CleanPlayground` | `--clean-playground` | `false` | Nettoie les projets bacs à sable dans `antigravity/playground`. |
+| **11** | `-DeepClean` | `--deep-clean` | `false` | Active simultanément les 7 modules de nettoyage (`4` à `10`). |
+| **12** | `-PruneOrphanProjects` | `--prune-orphan-projects` | `false` | Supprime également les conversations dont le dossier de projet n'existe plus sur le disque. |
+| **13** | `-ProjectFilter <regex>` | `--project-filter <regex>` | `""` | Filtre l'audit et le nettoyage uniquement sur les projets correspondant à l'expression régulière. |
+| **14** | `-BackupDir <chemin>` | `--backup-dir <chemin>` | `""` | Crée une archive `.zip` des conversations avant leur suppression. |
+| **15** | `-GeminiRoot <chemin>` | `--gemini-root <chemin>` | `~/.gemini` | Chemin personnalisé vers le répertoire racine `.gemini`. |
+| **16** | `-Lang <en\|fr>` | `--lang <en\|fr>` | `en` / `fr` | Langue d'affichage (`en` par défaut sur `.ps1`/`.py`, `fr` par défaut sur `.fr.ps1`). |
+| **17** | `-Json` | `--json` | `false` | Produit un rapport JSON structuré destiné aux agents IA et scripts d'automatisation. |
+| **18** | `-Execute` | `--execute` | `false` | Exécute réellement la suppression des fichiers (sinon reste en mode Simulation Dry-Run). |
+| **19** | `-Force` | `--force` | `false` | Désactive la demande de confirmation interactive `(o/N)`. |
 
 ---
 
 ### Utilisation par les Agents IA (`AGENT.md`)
 
-Consultez le fichier **[`AGENT.md`](./AGENT.md)** pour permettre à un agent IA (Antigravity, Claude Code, Cursor, etc.) d'auditer et de nettoyer `~/.gemini` automatiquement via `--json` et `--execute --force`.
+Ce dépôt inclut un fichier dédié **[`AGENT.md`](./AGENT.md)** conçu pour les Agents IA de programmation (Google Antigravity, Claude Code, Cursor, Windsurf, Copilot, etc.). Les agents peuvent auditer ou nettoyer `~/.gemini` de manière non-interactive via :
+
+```bash
+# 1. Audit structuré au format JSON (lisible par l'agent)
+python3 clean-antigravity.py --lang fr --json
+
+# 2. Nettoyage autonome 100% sans risque (non-interactif)
+python3 clean-antigravity.py --lang fr --clean-orphan-pb --clean-tmp-and-logs --clean-browser --execute --force
+```
+
+Consultez **[`AGENT.md`](./AGENT.md#guide-op%C3%A9rationnel-pour-agents-ia-fran%C3%A7ais)** pour l'arbre de décision complet et le schéma JSON.
 
 ---
 
 ## License
 
 Distributed under the [MIT License](./LICENSE).
-
