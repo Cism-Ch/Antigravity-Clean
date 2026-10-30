@@ -122,6 +122,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Ensure UTF-8 stdout encoding across Windows PowerShell 5.1, pwsh 7+, macOS, and Linux
+try {
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [Console]::OutputEncoding = $utf8NoBom
+    $OutputEncoding = $utf8NoBom
+} catch { }
+
 # --- Cross-Platform Environment Detection & Path Initialization ---
 $IsWindowsOS = ($env:OS -eq "Windows_NT") -or ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT)
 
@@ -621,13 +628,15 @@ function Get-TreeReport {
 
                 $info1 = Get-FolderInfo -RelPath $item1.Name -Bytes $agyBytes
                 $list.Add([PSCustomObject]@{
-                    Tree      = "$branch1[$($item1.Name)]"
-                    Status    = $info1.Status
-                    Size      = Format-Size -Bytes $agyBytes
-                    SizeBytes = $agyBytes
-                    Files     = $agyFiles
-                    Risk      = $info1.Risk
-                    Role      = $info1.Role
+                    ItemName   = $item1.Name
+                    IsTopLevel = $true
+                    Tree       = "$branch1[$($item1.Name)]"
+                    Status     = $info1.Status
+                    Size       = Format-Size -Bytes $agyBytes
+                    SizeBytes  = $agyBytes
+                    Files      = $agyFiles
+                    Risk       = $info1.Risk
+                    Role       = $info1.Role
                 })
 
                 $sortedSubs = @($subEntries | Sort-Object Bytes -Descending)
@@ -655,37 +664,43 @@ function Get-TreeReport {
                     }
 
                     $list.Add([PSCustomObject]@{
-                        Tree      = $label2
-                        Status    = $info2.Status
-                        Size      = Format-Size -Bytes $sub.Bytes
-                        SizeBytes = $sub.Bytes
-                        Files     = $sub.Files
-                        Risk      = $info2.Risk
-                        Role      = $info2.Role
+                        ItemName   = $rel2
+                        IsTopLevel = $false
+                        Tree       = $label2
+                        Status     = $info2.Status
+                        Size       = Format-Size -Bytes $sub.Bytes
+                        SizeBytes  = $sub.Bytes
+                        Files      = $sub.Files
+                        Risk       = $info2.Risk
+                        Role       = $info2.Role
                     })
                 }
             } else {
                 $st1 = Get-FolderStats -Path $item1.FullName
                 $info1 = Get-FolderInfo -RelPath $item1.Name -Bytes $st1.Bytes
                 $list.Add([PSCustomObject]@{
-                    Tree      = "$branch1[$($item1.Name)]"
-                    Status    = $info1.Status
-                    Size      = Format-Size -Bytes $st1.Bytes
-                    SizeBytes = $st1.Bytes
-                    Files     = $st1.Files
-                    Risk      = $info1.Risk
-                    Role      = $info1.Role
+                    ItemName   = $item1.Name
+                    IsTopLevel = $true
+                    Tree       = "$branch1[$($item1.Name)]"
+                    Status     = $info1.Status
+                    Size       = Format-Size -Bytes $st1.Bytes
+                    SizeBytes  = $st1.Bytes
+                    Files      = $st1.Files
+                    Risk       = $info1.Risk
+                    Role       = $info1.Role
                 })
             }
         } else {
             $list.Add([PSCustomObject]@{
-                Tree      = "$branch1$($item1.Name)"
-                Status    = (Msg "KEEP [CONFIG]" "CONSERVER [CONFIG]")
-                Size      = Format-Size -Bytes ([int64]$item1.Length)
-                SizeBytes = [int64]$item1.Length
-                Files     = 1
-                Risk      = "IMPORTANT"
-                Role      = (Msg "File" "Fichier")
+                ItemName   = $item1.Name
+                IsTopLevel = $true
+                Tree       = "$branch1$($item1.Name)"
+                Status     = (Msg "KEEP [CONFIG]" "CONSERVER [CONFIG]")
+                Size       = Format-Size -Bytes ([int64]$item1.Length)
+                SizeBytes  = [int64]$item1.Length
+                Files      = 1
+                Risk       = "IMPORTANT"
+                Role       = (Msg "File" "Fichier")
             })
         }
     }
@@ -785,15 +800,18 @@ foreach ($surf in $surfaces) {
             $isProtectedByAge = ($MaxAgeDays -gt 0) -and ($daysSinceActive -lt $MaxAgeDays)
 
             $shouldDelete = $false
+            $wouldPrune   = $false
             if ($isActiveNow) {
                 $status = Msg "KEEP [ACTIVE]" "CONSERVER [ACTIF]"
                 $risk   = Msg "PROTECTED (active session)" "PROTEGE (session en cours)"
                 if (-not $item.IsSubagent) { $keptCountForProject++ }
             } elseif ($item.IsEmptySession) {
+                $wouldPrune   = $true
                 $shouldDelete = $doConversations
                 $status = if ($doConversations) { Msg "DELETE [EMPTY SESSION]" "SUPPRIMER [SESSION VIDE]" } else { Msg "KEEP (Empty session)" "CONSERVER (Session vide)" }
                 $risk   = Msg "NONE (no messages/artifacts)" "AUCUN (aucun message/artefact)"
             } elseif ($PruneOrphanProjects -and $isOrphan) {
+                $wouldPrune   = $true
                 $shouldDelete = $doConversations
                 $status = if ($doConversations) { Msg "DELETE [MISSING PROJECT]" "SUPPRIMER [PROJET ABSENT]" } else { Msg "KEEP [ORPHAN]" "CONSERVER [ORPHELIN]" }
                 $risk   = Msg "MODERATE (project deleted from disk)" "MODERE (projet supprime du disque)"
@@ -802,6 +820,7 @@ foreach ($surf in $surfaces) {
                     $status = Msg "KEEP [SUBAGENT]" "CONSERVER [SUBAGENT]"
                     $risk   = Msg "KEPT (outside main quota)" "CONSERVE (hors quota principal)"
                 } else {
+                    $wouldPrune   = $true
                     $shouldDelete = $doConversations
                     $status = if ($doConversations) { Msg "DELETE [SUBAGENT]" "SUPPRIMER [SUBAGENT]" } else { Msg "KEEP [SUBAGENT]" "CONSERVER [SUBAGENT]" }
                     $risk   = Msg "LOW (completed subagent)" "FAIBLE (sous-agent termine)"
@@ -811,6 +830,7 @@ foreach ($surf in $surfaces) {
                 $risk   = Msg "KEPT" "CONSERVE"
                 $keptCountForProject++
             } else {
+                $wouldPrune   = $true
                 $shouldDelete = $doConversations
                 $status = if ($doConversations) { Msg "DELETE (Over Quota)" "SUPPRIMER (Hors Quota)" } else { Msg "KEEP (Over Quota)" "CONSERVER (Hors Quota)" }
                 $risk   = Msg "MODERATE (older chat > Top $KeepPerProject)" "MODERE (ancien chat > Top $KeepPerProject)"
@@ -845,6 +865,7 @@ foreach ($surf in $surfaces) {
                 PairedPaths  = $pairedItems.ToArray()
                 IsActiveNow  = $isActiveNow
                 ShouldDelete = $shouldDelete
+                WouldPrune   = $wouldPrune
             }
             $report.Add($row)
 
@@ -943,7 +964,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectFilter)) {
 # --- 4. Modular Targets (-CleanScratch, -CleanPlayground, -CleanBrowser, -CleanTrackers, -CleanTmpAndLogs, -CleanBackup) ---
 
 $modularTargets = [System.Collections.Generic.List[object]]::new()
-$cacheSpecs = [System.Collections.Generic.List[hashtable]]::new()
+$cacheSpecs = [System.Collections.Generic.List[object]]::new()
 
 foreach ($surf in $surfaces) {
     $sn = $surf.Name
@@ -1127,6 +1148,30 @@ foreach ($kept in $keptConvs) {
     }
 }
 
+# Collect scratch & playground subfolder previews (for both console and JSON guided assistant)
+$heavySubfolders = [System.Collections.Generic.List[object]]::new()
+foreach ($surf in $surfaces) {
+    foreach ($heavyDirName in @("scratch", "playground")) {
+        $hp = Join-Paths @($surf.Root, $heavyDirName)
+        if (Test-Path -LiteralPath $hp) {
+            $subDirs = @(Get-ChildItem -LiteralPath $hp -Force -ErrorAction SilentlyContinue)
+            foreach ($sd in $subDirs) {
+                $sz = if ($sd.PSIsContainer) { (Get-FolderStats -Path $sd.FullName).Bytes } else { [int64]$sd.Length }
+                $heavySubfolders.Add([PSCustomObject]@{
+                    Surface      = $surf.Name
+                    Category     = $heavyDirName
+                    Name         = $sd.Name
+                    Subfolder    = "  |-- $($sd.Name)"
+                    Size         = Format-Size -Bytes $sz
+                    LastModified = $sd.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                    SizeBytes    = $sz
+                    Path         = $sd.FullName
+                })
+            }
+        }
+    }
+}
+
 if (-not $Json -and $modularTargets.Count -gt 0) {
     Write-Host (Msg "`n[4/4] Caches & Temporary Folders (Selectable a-la-carte or via -DeepClean):" `
                     "`n[4/4] Caches & Dossiers Temporaires (Selectionnables a la carte ou via -DeepClean) :") -ForegroundColor Cyan
@@ -1144,30 +1189,18 @@ if (-not $Json -and $modularTargets.Count -gt 0) {
 
     foreach ($surf in $surfaces) {
         foreach ($heavyDirName in @("scratch", "playground")) {
-            $hp = Join-Paths @($surf.Root, $heavyDirName)
-            if (Test-Path -LiteralPath $hp) {
-                $subDirs = @(Get-ChildItem -LiteralPath $hp -Force -ErrorAction SilentlyContinue)
-                if ($subDirs.Count -gt 0) {
-                    Write-Host (Msg "  Inner contents of '$($surf.Name)/$heavyDirName' ($($subDirs.Count) item(s)):" `
-                                    "  Detail du contenu de '$($surf.Name)/$heavyDirName' ($($subDirs.Count) element(s)) :") -ForegroundColor DarkCyan
-                    $subReport = foreach ($sd in $subDirs) {
-                        $sz = if ($sd.PSIsContainer) { (Get-FolderStats -Path $sd.FullName).Bytes } else { [int64]$sd.Length }
-                        [PSCustomObject]@{
-                            Subfolder    = "  |-- $($sd.Name)"
-                            Size         = Format-Size -Bytes $sz
-                            LastModified = $sd.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
-                            SizeBytes    = $sz
-                        }
-                    }
-                    $topSubs = $subReport | Sort-Object SizeBytes -Descending | Select-Object -First 8
-                    if ($isFr) {
-                        $topSubs | Select-Object `
-                            @{N='SousDossier';E={$_.Subfolder}}, `
-                            @{N='Taille';E={$_.Size}}, `
-                            @{N='DernierMod';E={$_.LastModified}} | Format-Table -AutoSize
-                    } else {
-                        $topSubs | Select-Object Subfolder, Size, LastModified | Format-Table -AutoSize
-                    }
+            $surfSubs = @($heavySubfolders | Where-Object { $_.Surface -eq $surf.Name -and $_.Category -eq $heavyDirName })
+            if ($surfSubs.Count -gt 0) {
+                Write-Host (Msg "  Inner contents of '$($surf.Name)/$heavyDirName' ($($surfSubs.Count) item(s)):" `
+                                "  Detail du contenu de '$($surf.Name)/$heavyDirName' ($($surfSubs.Count) element(s)) :") -ForegroundColor DarkCyan
+                $topSubs = $surfSubs | Sort-Object SizeBytes -Descending | Select-Object -First 8
+                if ($isFr) {
+                    $topSubs | Select-Object `
+                        @{N='SousDossier';E={$_.Subfolder}}, `
+                        @{N='Taille';E={$_.Size}}, `
+                        @{N='DernierMod';E={$_.LastModified}} | Format-Table -AutoSize
+                } else {
+                    $topSubs | Select-Object Subfolder, Size, LastModified | Format-Table -AutoSize
                 }
             }
         }
@@ -1188,6 +1221,44 @@ $activeModularTargets = @($modularTargets | Where-Object { $_.Enabled })
 [int64]$trackersBytes   = Get-TotalBytes -Items @($modularTargets | Where-Object { $_.Category -eq "trackers" }) -Property "SizeBytes"
 [int64]$tmpLogsBytes    = Get-TotalBytes -Items @($modularTargets | Where-Object { $_.Category -eq "tmpLogs" }) -Property "SizeBytes"
 [int64]$backupBytes     = Get-TotalBytes -Items @($modularTargets | Where-Object { $_.Category -eq "backup" }) -Property "SizeBytes"
+
+# Pre-compute exact byte totals for all 4 Guided Cleanup Methods (A, B, C, D)
+$wouldPruneConvs = @($report | Where-Object { $_.WouldPrune })
+[int64]$wouldPruneBytes = Get-TotalBytes -Items $wouldPruneConvs -Property "SizeBytes"
+[int64]$wouldPruneRawLogsBytes = 0L
+[int64]$extraTmpLogsInDeletedBytes = 0L
+foreach ($c in $wouldPruneConvs) {
+    if ($c.IsActiveNow) { continue }
+    [int64]$rawSz = 0L
+    foreach ($sub in @("steps", "tasks")) {
+        $sp = Join-Paths @($c.FullPath, ".system_generated", $sub)
+        if (Test-Path -LiteralPath $sp) {
+            $rawSz += (Get-FolderStats -Path $sp).Bytes
+        }
+    }
+    $wouldPruneRawLogsBytes += $rawSz
+    if ($c.ShouldDelete) {
+        $extraTmpLogsInDeletedBytes += $rawSz
+    }
+}
+
+[int64]$tmpLogsAllChatsBytes = $tmpLogsBytes + $extraTmpLogsInDeletedBytes
+[int64]$tmpLogsWithPruningBytes = [Math]::Max(0L, $tmpLogsAllChatsBytes - $wouldPruneRawLogsBytes)
+
+[int64]$methodABytes = $orphanConvBytes + $tmpLogsAllChatsBytes + $browserBytes
+[int64]$methodBBytes = $methodABytes + $trackersBytes + $scratchBytes + $backupBytes
+[int64]$methodCBytes = $wouldPruneBytes + $orphanConvBytes + $tmpLogsWithPruningBytes + $browserBytes + $trackersBytes + $scratchBytes + $backupBytes
+[int64]$methodDBytes = $methodCBytes + $playgroundBytes
+
+$recId = if ($methodDBytes -eq 0L) {
+    "NONE"
+} elseif ($wouldPruneBytes -eq 0L -and ($trackersBytes + $scratchBytes + $backupBytes) -eq 0L) {
+    "A"
+} elseif ($wouldPruneBytes -eq 0L) {
+    "B"
+} else {
+    "C"
+}
 
 # --- Risk Guide & Complete Summary ---
 
@@ -1245,15 +1316,82 @@ if (-not $Json) {
 
 if (-not $Execute) {
     if ($Json) {
+        $topRows = @($tree | Where-Object { $_.IsTopLevel })
+        [int64]$totalGeminiBytes = Get-TotalBytes -Items $topRows -Property "SizeBytes"
+        $agy20Row  = $topRows | Where-Object { $_.ItemName -eq "antigravity" } | Select-Object -First 1
+        $agyIdeRow = $topRows | Where-Object { $_.ItemName -eq "antigravity-ide" } | Select-Object -First 1
+        $agyBakRow = $topRows | Where-Object { $_.ItemName -eq "antigravity-backup" } | Select-Object -First 1
+        [int64]$agy20Bytes  = if ($null -ne $agy20Row) { [int64]$agy20Row.SizeBytes } else { 0L }
+        [int64]$agyIdeBytes = if ($null -ne $agyIdeRow) { [int64]$agyIdeRow.SizeBytes } else { 0L }
+        [int64]$agyBakBytes = if ($null -ne $agyBakRow) { [int64]$agyBakRow.SizeBytes } else { 0L }
+        $keptConvCount   = @($report | Where-Object { -not $_.WouldPrune }).Count
+        $prunedConvCount = $wouldPruneConvs.Count
+
         [PSCustomObject]@{
-            mode                  = "dry-run"
-            geminiRoot            = $GeminiRoot
-            keepPerProject        = $KeepPerProject
-            totalPlannedBytes     = $totalPlannedBytes
-            totalPlannedFormatted = (Format-Size -Bytes $totalPlannedBytes)
-            totalDeepCleanBytes   = $totalDeepCleanBytes
+            mode                    = "dry-run"
+            geminiRoot              = $GeminiRoot
+            keepPerProject          = $KeepPerProject
+            totalPlannedBytes       = $totalPlannedBytes
+            totalPlannedFormatted   = (Format-Size -Bytes $totalPlannedBytes)
+            totalDeepCleanBytes     = $totalDeepCleanBytes
             totalDeepCleanFormatted = (Format-Size -Bytes $totalDeepCleanBytes)
-            categories            = [PSCustomObject]@{
+            surfacesSummary         = [PSCustomObject]@{
+                totalGeminiBytes           = $totalGeminiBytes
+                totalGeminiFormatted       = (Format-Size -Bytes $totalGeminiBytes)
+                antigravityBytes           = $agy20Bytes
+                antigravityFormatted       = (Format-Size -Bytes $agy20Bytes)
+                antigravityIdeBytes        = $agyIdeBytes
+                antigravityIdeFormatted    = (Format-Size -Bytes $agyIdeBytes)
+                antigravityBackupBytes     = $agyBakBytes
+                antigravityBackupFormatted = (Format-Size -Bytes $agyBakBytes)
+                keptConversationsCount     = $keptConvCount
+                prunedConversationsCount   = $prunedConvCount
+                orphanPbCount              = $orphanConvItems.Count
+            }
+            recommendedMethod       = $recId
+            methods                 = [PSCustomObject]@{
+                A = [PSCustomObject]@{
+                    id            = "A"
+                    name          = "Zero-Risk Hygiene (Keep All Chats)"
+                    risk          = "NONE"
+                    keepsAllChats = $true
+                    bytes         = $methodABytes
+                    formatted     = (Format-Size -Bytes $methodABytes)
+                    posixFlags    = "--clean-orphan-pb --clean-tmp-and-logs --clean-browser"
+                    ps1Flags      = "-CleanOrphanPb -CleanTmpAndLogs -CleanBrowser"
+                }
+                B = [PSCustomObject]@{
+                    id            = "B"
+                    name          = "Deep Cache & Migration Cleanup (Keep All Chats)"
+                    risk          = "LOW"
+                    keepsAllChats = $true
+                    bytes         = $methodBBytes
+                    formatted     = (Format-Size -Bytes $methodBBytes)
+                    posixFlags    = "--clean-orphan-pb --clean-tmp-and-logs --clean-browser --clean-trackers --clean-scratch --clean-backup"
+                    ps1Flags      = "-CleanOrphanPb -CleanTmpAndLogs -CleanBrowser -CleanTrackers -CleanScratch -CleanBackup"
+                }
+                C = [PSCustomObject]@{
+                    id            = "C"
+                    name          = "Standard Recommended Hygiene (Keep Top $KeepPerProject Chats/Project + Caches)"
+                    risk          = "MODERATE"
+                    keepsAllChats = $false
+                    bytes         = $methodCBytes
+                    formatted     = (Format-Size -Bytes $methodCBytes)
+                    posixFlags    = "--clean-conversations --clean-orphan-pb --clean-tmp-and-logs --clean-browser --clean-trackers --clean-scratch --clean-backup"
+                    ps1Flags      = "-CleanConversations -CleanOrphanPb -CleanTmpAndLogs -CleanBrowser -CleanTrackers -CleanScratch -CleanBackup"
+                }
+                D = [PSCustomObject]@{
+                    id            = "D"
+                    name          = "Full Deep Clean + ZIP Backup (Includes Playground)"
+                    risk          = "MODERATE"
+                    keepsAllChats = $false
+                    bytes         = $methodDBytes
+                    formatted     = (Format-Size -Bytes $methodDBytes)
+                    posixFlags    = "--deep-clean --backup-dir ./backups"
+                    ps1Flags      = "-DeepClean -BackupDir ./backups"
+                }
+            }
+            categories              = [PSCustomObject]@{
                 conversationsBytes = $brainFreedBytes
                 orphanPbBytes      = $orphanConvBytes
                 tmpAndLogsBytes    = $tmpLogsBytes
@@ -1263,10 +1401,11 @@ if (-not $Execute) {
                 playgroundBytes    = $playgroundBytes
                 backupBytes        = $backupBytes
             }
-            conversations         = $report
-            orphanPbFiles         = $orphanConvItems
-            modularTargets        = $modularTargets
-        } | ConvertTo-Json -Depth 6
+            heavySubfolders         = $heavySubfolders
+            conversations           = $report
+            orphanPbFiles           = $orphanConvItems
+            modularTargets          = $modularTargets
+        } | ConvertTo-Json -Depth 8
         exit 0
     }
 

@@ -75,7 +75,7 @@ Depending on which versions of Google Antigravity you have installed or tested, 
 - **🔗 Synchronized `brain/` + `.pb` Cleanup**: Deletes both the `brain/<id>` folder and its paired `conversations/<id>.pb` state file, and detects orphaned `.pb` files whose `brain/` folder no longer exists across both `antigravity/` and `antigravity-ide/`.
 - **🧩 Modular A-La-Carte or Deep Cleanup**: Pick individual zero-risk categories (`-CleanOrphanPb`, `-CleanTmpAndLogs`, `-CleanBrowser`), low-risk caches (`-CleanTrackers`, `-CleanScratch`, `-CleanBackup`), or full `-DeepClean`.
 - **🌍 Truly Cross-Platform & Bilingual**: Runs natively on **Windows, macOS, and Linux** via Python 3, PowerShell, POSIX `sh`/`bash`/`zsh`, or Windows `cmd.exe`, in **English** (default) or **French** (`--lang fr` / `-Lang fr`).
-- **🤖 AI Agent Native**: Includes [`AGENT.md`](./AGENT.md) and a machine-readable `-Json` / `--json` output mode for autonomous execution by coding agents.
+- **🤖 Guided AI Assistant & Native Slash Commands**: Includes [`AGENT.md`](./AGENT.md), pre-configured Antigravity workspace skills (`.agents/skills/`), and enriched `-Json` / `--json` diagnostics so any AI agent guides non-initiated users step-by-step in their own language (`/clean-guide`, `/clean-audit`, `/clean-safe`, `/clean-standard`, `/clean-project`, `/clean-deep`).
 
 ---
 
@@ -90,7 +90,8 @@ To ensure seamless execution on **every operating system and terminal**, this re
 | **3** | [`clean-antigravity.py`](./clean-antigravity.py) | Zero-dependency Python 3 implementation (accepts both `--posix` and `-PowerShell` flags) | Windows, macOS, Linux (`python3` / `python` 3.8+) |
 | **4** | [`clean-antigravity.sh`](./clean-antigravity.sh) | Universal POSIX shell launcher (auto-detects `python3` or `pwsh`) | macOS, Linux, WSL, Git Bash (`sh`, `bash`, `zsh`) |
 | **5** | [`clean-antigravity.cmd`](./clean-antigravity.cmd) | Universal Windows batch launcher (auto-detects `pwsh`, `powershell`, or `python`) | Windows Command Prompt (`cmd.exe`) |
-| **6** | [`AGENT.md`](./AGENT.md) | Operational guide & JSON schema for AI Coding Agents | All AI Agents (Antigravity, Claude Code, Cursor, etc.) |
+| **6** | [`AGENT.md`](./AGENT.md) | Guided Cleanup Coach protocol, slash commands & JSON schema | All AI Agents (Antigravity, Claude Code, Cursor, etc.) |
+| **7** | [`.agents/skills/`](./.agents/skills/) | Ready-to-use `/clean-*` slash commands & workspace rule | Google Antigravity 2.0 & Antigravity IDE |
 
 ---
 
@@ -218,17 +219,29 @@ Both PowerShell (`-PascalCase`) and POSIX (`--kebab-case`) flags are supported b
 
 ## AI Agent Usage (`AGENT.md`)
 
-This repository includes a dedicated [`AGENT.md`](./AGENT.md) file designed for AI Coding Agents. Agents can audit or clean `~/.gemini` non-interactively using:
+Not comfortable with command-line flags? Let your AI coding agent (**Google Antigravity 2.0**, **Antigravity IDE**, **Claude Code**, **Cursor**, **Windsurf**, **Copilot**) guide you step-by-step in your own language via [`AGENT.md`](./AGENT.md) and the pre-configured slash commands in [`.agents/skills/`](./.agents/skills/):
+
+| Guided Command | Risk Level | What the AI Assistant Does for You |
+| :--- | :---: | :--- |
+| **`/clean-guide`** | 🧭 **Interactive** | **Recommended for beginners**: Audits `~/.gemini`, explains what is taking space in plain language, compares **Methods A / B / C / D**, helps you decide, previews the work plan, and reports the final space freed. |
+| **`/clean-audit`** | 🟢 **Read-Only** | Generates a visual executive summary of your disk usage (`Antigravity 2.0` vs `IDE` vs `Backup`) and compares all 4 cleanup methods **without deleting a single file**. |
+| **`/clean-safe`** | 🟢 **None** | Prepares & runs **Method A** (orphaned `.pb` files, logs/caches, browser videos) while keeping **100% of your conversations**. |
+| **`/clean-standard`** | 🟡 **Low / Mod.** | Prepares & runs **Method C** *(or Method B to keep all chats)*, previewing kept vs older sessions per project with an optional `.zip` backup. |
+| **`/clean-project <name>`** | 🟡 **Targeted** | Audits and cleans older sessions for **one specific project** (`--project-filter`), showing every conversation topic and date first. |
+| **`/clean-deep`** | 🟠 **Moderate** | Prepares **Method D (`--deep-clean`)**, inspecting `playground/` & `scratch/` subfolders first and enabling a `.zip` backup in `./backups`. |
+| **`/setup-commands`** | ⚙️ **Setup** | Installs these `/clean-*` slash commands **globally** on your computer (`~/.gemini/config/skills/` or `~/.claude/commands/`) so they work in every project. |
+
+For automated scripts or custom agents, raw JSON mode is also available:
 
 ```bash
-# 1. Machine-readable JSON audit
+# 1. Machine-readable JSON audit (includes pre-computed Methods A, B, C, D)
 python3 clean-antigravity.py --json
 
-# 2. Autonomous zero-risk cleanup (non-interactive)
+# 2. Non-interactive zero-risk execution
 python3 clean-antigravity.py --clean-orphan-pb --clean-tmp-and-logs --clean-browser --execute --force
 ```
 
-See **[`AGENT.md`](./AGENT.md)** for the full agent decision tree and JSON schema.
+See **[`AGENT.md`](./AGENT.md)** for the complete Guided Cleanup Coach protocol, summary templates, and JSON schema.
 
 ---
 ---
@@ -278,7 +291,7 @@ Selon les versions de Google Antigravity que vous avez installées ou testées, 
 - **🔗 Nettoyage synchronisé `brain/` + `.pb`** : Supprime simultanément le dossier `brain/<id>` et son fichier d'état `conversations/<id>.pb` associé, et détecte les fichiers `.pb` orphelins dans `antigravity/` comme dans `antigravity-ide/`.
 - **🧩 Nettoyage modulaire à la carte ou complet** : Ciblez uniquement les catégories sans aucun risque (`-CleanOrphanPb`, `-CleanTmpAndLogs`, `-CleanBrowser`), les caches à faible risque (`-CleanTrackers`, `-CleanScratch`, `-CleanBackup`), ou lancez un nettoyage complet (`-DeepClean`).
 - **🌍 Véritablement multiplateforme & bilingue** : Fonctionne nativement sur **Windows, macOS et Linux** via Python 3, PowerShell, `sh`/`bash`/`zsh` ou Windows `cmd.exe`, en **anglais** (par défaut) ou en **français** (`--lang fr` / `-Lang fr` ou via `clean-antigravity.fr.ps1`).
-- **🤖 Conçu pour les Agents IA** : Inclut [`AGENT.md`](./AGENT.md) ainsi qu'un mode de sortie JSON structuré (`-Json` / `--json`) pour l'exécution autonome par des agents de code.
+- **🤖 Assistant IA Guidé & Commandes Slash Natives** : Inclut [`AGENT.md`](./AGENT.md), des skills Antigravity préconfigurés ([`.agents/skills/`](./.agents/skills/)) et un diagnostic JSON enrichi (`-Json` / `--json`) permettant à tout agent IA de guider les utilisateurs non initiés pas à pas en français (`/clean-guide`, `/clean-audit`, `/clean-safe`, `/clean-standard`, `/clean-project`, `/clean-deep`).
 
 ---
 
@@ -293,7 +306,8 @@ Pour garantir une exécution fluide sur **tous les systèmes d'exploitation et t
 | **3** | [`clean-antigravity.py`](./clean-antigravity.py) | Implémentation Python 3 zéro-dépendance (accepte les flags `--posix` et `-PowerShell`) | Windows, macOS, Linux (`python3` / `python` 3.8+) |
 | **4** | [`clean-antigravity.sh`](./clean-antigravity.sh) | Lanceur shell POSIX universel (détecte automatiquement `python3` ou `pwsh`) | macOS, Linux, WSL, Git Bash (`sh`, `bash`, `zsh`) |
 | **5** | [`clean-antigravity.cmd`](./clean-antigravity.cmd) | Lanceur batch Windows universel (détecte `pwsh`, `powershell` ou `python`) | Invite de commandes Windows (`cmd.exe`) |
-| **6** | [`AGENT.md`](./AGENT.md) | Guide opérationnel et schéma JSON pour les Agents IA de programmation | Tous les Agents IA (Antigravity, Claude Code, Cursor, etc.) |
+| **6** | [`AGENT.md`](./AGENT.md) | Protocole de Coach IA Guidé, commandes et schéma JSON | Tous les Agents IA (Antigravity, Claude Code, Cursor, etc.) |
+| **7** | [`.agents/skills/`](./.agents/skills/) | Commandes slash `/clean-*` et règle d'assistance prêtes à l'emploi | Google Antigravity 2.0 & Antigravity IDE |
 
 ---
 
@@ -423,17 +437,29 @@ Les deux styles d'options — PowerShell (`-PascalCase`) et POSIX (`--kebab-case
 
 ### Utilisation par les Agents IA (`AGENT.md`)
 
-Ce dépôt inclut un fichier dédié **[`AGENT.md`](./AGENT.md)** conçu pour les Agents IA de programmation (Google Antigravity, Claude Code, Cursor, Windsurf, Copilot, etc.). Les agents peuvent auditer ou nettoyer `~/.gemini` de manière non-interactive via :
+Vous n'êtes pas à l'aise avec les options en ligne de commande ? Laissez votre agent IA (**Google Antigravity 2.0**, **Antigravity IDE**, **Claude Code**, **Cursor**, **Windsurf**, **Copilot**) vous accompagner pas à pas en français grâce au protocole **[`AGENT.md`](./AGENT.md)** et aux commandes slash préconfigurées dans [`.agents/skills/`](./.agents/skills/) :
+
+| Commande Guidée | Niveau de Risque | Comment l'Assistant IA vous accompagne |
+| :--- | :---: | :--- |
+| **`/clean-guide`** | 🧭 **Interactif** | **Recommandé pour les non-initiés** : Analyse `~/.gemini`, explique simplement ce qui prend de la place, compare les **4 Méthodes (A / B / C / D)**, vous aide à choisir, résume le travail à effectuer puis présente le bilan final. |
+| **`/clean-audit`** | 🟢 **Lecture seule** | Génère un résumé exécutif clair de l'espace disque (`Antigravity 2.0` vs `IDE` vs `Backup`) et compare les 4 méthodes **sans supprimer aucun fichier**. |
+| **`/clean-safe`** | 🟢 **Aucun** | Prépare et exécute la **Méthode A** (fichiers `.pb` orphelins, logs/caches temporaires, vidéos navigateur) tout en **conservant 100 % de vos conversations**. |
+| **`/clean-standard`** | 🟡 **Faible / Mod.** | Prépare et exécute la **Méthode C** *(ou la Méthode B pour garder tous les chats)*, affiche les conversations conservées vs purgées par projet et propose une sauvegarde `.zip`. |
+| **`/clean-project <nom>`** | 🟡 **Ciblé** | Analyse et nettoie uniquement les anciennes sessions d'un **projet précis** (`--project-filter`), en affichant d'abord tous les sujets et dates. |
+| **`/clean-deep`** | 🟠 **Modéré** | Prépare la **Méthode D (`--deep-clean`)**, inspecte d'abord le contenu de `playground/` & `scratch/` et active par défaut une sauvegarde `.zip` dans `./backups`. |
+| **`/setup-commands`** | ⚙️ **Installation** | Installe ces commandes `/clean-*` **globalement** sur votre machine (`~/.gemini/config/skills/` ou `~/.claude/commands/`) pour les utiliser depuis n'importe quel projet. |
+
+Pour les scripts automatisés ou l'exécution directe par un agent, le mode JSON structuré reste également disponible :
 
 ```bash
-# 1. Audit structuré au format JSON (lisible par l'agent)
+# 1. Audit structuré au format JSON (inclut le pré-calcul exact des Méthodes A, B, C, D)
 python3 clean-antigravity.py --lang fr --json
 
-# 2. Nettoyage autonome 100% sans risque (non-interactif)
+# 2. Nettoyage autonome 100 % sans risque (non-interactif)
 python3 clean-antigravity.py --lang fr --clean-orphan-pb --clean-tmp-and-logs --clean-browser --execute --force
 ```
 
-Consultez **[`AGENT.md`](./AGENT.md)** pour l'arbre de décision complet et le schéma JSON.
+Consultez **[`AGENT.md`](./AGENT.md)** pour le protocole complet d'accompagnement guidé, les modèles de résumés (diagnostic, plan de travail, bilan final) et le schéma JSON.
 
 ---
 

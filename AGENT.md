@@ -1,101 +1,192 @@
-# AGENT.md — AI Agent Operational Guide for `Antigravity-Clean`
+# AGENT.md — Guided Cleanup Assistant & AI Agent Operational Manual
 
-This document provides structured operational instructions for **AI Coding Agents** (Google Antigravity, Claude Code, Cursor, Windsurf, GitHub Copilot, Codex, etc.) to safely audit and reclaim disk space in `~/.gemini`, `~/.gemini/antigravity` (**Antigravity 2.0**), `~/.gemini/antigravity-ide` (**Antigravity IDE**), and `~/.gemini/antigravity-backup` across **Windows, macOS, and Linux**.
+This document equips **AI Coding Agents** (Google Antigravity 2.0, Antigravity IDE, Claude Code, Cursor, Windsurf, GitHub Copilot, Codex, etc.) with a complete **Guided Cleanup Coach Protocol**, **User-Facing Commands**, **Executive Summary Templates**, and **Cross-Platform CLI Specifications** for `Antigravity-Clean` (`agy-clean`).
 
----
-
-## 1. Purpose & Directory Architecture
-
-Google Antigravity and Gemini CLI store conversation transcripts, Protobuf session states (`.pb`), browser recordings, code tracker snapshots, scratch workspaces, and sandbox playground projects inside `~/.gemini`.
-
-### Antigravity Surfaces in `~/.gemini`:
-1. **`~/.gemini/antigravity/` (Antigravity 2.0 — Desktop App & `agy` CLI v1.4+)**:
-   Active primary directory for the standalone Antigravity 2.0 Electron application and `agy` CLI (`~/.gemini/bin/agy`).
-2. **`~/.gemini/antigravity-ide/` (Antigravity IDE — VS Code-based 1.x editor)**:
-   Created during the Antigravity 2.0 migration (marked by `.ide_migration`) to isolate data belonging to the VS Code-based Antigravity IDE (`language_server_*`) so both versions can coexist without database collisions.
-3. **`~/.gemini/antigravity-backup/` (Legacy Migration Snapshot)**:
-   Static archive created automatically during an earlier schema migration (`.migrated`), cleanable via `-CleanBackup` (`--clean-backup`).
-
-`Antigravity-Clean` (`agy-clean`) automatically audits and cleans **both** `antigravity/` and `antigravity-ide/` (tagged `[IDE]`), while:
-- Retaining the top `N` most recent real user conversations per project per surface (`-KeepPerProject 2` by default).
-- Automatically purging **empty sessions** and keeping **subagents** (`[Agent]`) out of the user's main conversation quota.
-- Protecting any currently active conversation modified within the last `15` minutes (`-ActiveGuardMinutes 15`), making it **100% safe for an AI agent to run while inside an active Antigravity session**.
+> **Core Mission**: Help non-initiated and technical users alike reclaim gigabytes of disk space in `~/.gemini` with **100% clarity, zero guesswork, plain-language explanations, and informed decision-making** at every step.
 
 ---
 
-## 2. Critical Rules for AI Agents
+## 1. Agent Persona & Pedagogical Protocol (For Non-Initiated Users)
 
-1. **Always Audit First (Dry-Run)**:
-   By default (without `-Execute` / `--execute`), the script runs in **Dry-Run Simulation Mode** and deletes nothing. Run a dry-run first (optionally with `-Json` / `--json`) to inspect how much space will be freed.
-2. **Always Pass `-Force` (`--force`) When Executing**:
-   When running with `-Execute` (`--execute`) from an agent tool call (`run_command` / `bash` / `pwsh`), **you MUST pass `-Force` (`--force`)**. Without `-Force`, the script waits for interactive `y/N` stdin confirmation and will hang your background command.
-3. **Your Active Session is Automatically Protected**:
-   Any conversation modified within the last 15 minutes (`-ActiveGuardMinutes 15`) is marked `KEEP [ACTIVE]` (`PROTECTED`). You will **not** delete your own transcript or task logs by running this tool.
-4. **Both Flag Styles Are Supported Everywhere**:
-   `clean-antigravity.py` and `clean-antigravity.sh` accept **both** POSIX flags (`--deep-clean --execute --force`) and PowerShell flags (`-DeepClean -Execute -Force`).
+Whenever a user invokes a cleanup command or asks for help freeing space in `.gemini` / Antigravity, act as an empathetic, transparent **Guided Cleanup Advisor**:
+
+1. **Always Mirror the User's Language**:
+   This manual is written in English for universal agent compatibility, **but you MUST communicate with the user in their own language** (e.g., respond in French if the user writes in French, English if English, Spanish if Spanish). Translate all summaries, risk badges, and explanations naturally.
+2. **Explain Technical Terms in Plain Everyday Language**:
+   Never overwhelm uninitiated users with raw internal paths without explaining what they mean. Use this plain-language translation table when presenting findings:
+
+| Technical Target | How to Explain It Simply to a Non-Initiated User | Risk Level |
+| :--- | :--- | :---: |
+| **Orphaned `.pb` files** (`conversations/*.pb`) | *"Leftover internal save-states from old chats that were already deleted. Cleaning them frees space with zero impact on your current chats or projects."* | 🟢 **NONE** |
+| **Temp, Logs & Raw `steps`/`tasks`** (`log/`, `cache/`, `steps/`) | *"Technical diagnostic logs and temporary cache files. Your readable conversation history (`transcript.jsonl`) and Markdown plans remain completely intact."* | 🟢 **NONE** |
+| **Browser Recordings** (`browser_recordings/`) | *"Old video captures and screenshots recorded during past automated browser tests."* | 🟢 **NONE** |
+| **Code Trackers** (`implicit/`, `code_tracker/`, `context_state/`) | *"Local search and code-indexing snapshots. Antigravity rebuilds them automatically in the background whenever you open a project."* | 🟡 **LOW** |
+| **Scratch Workspaces** (`scratch/`) | *"Temporary throwaway folders created for quick one-off tests outside your main projects."* | 🟡 **LOW** |
+| **Migration Archive** (`~/.gemini/antigravity-backup/`) | *"A frozen backup copy created automatically during a past Antigravity update. It is no longer used by the app."* | 🟡 **LOW** |
+| **Antigravity 2.0 vs IDE** (`antigravity/` vs `antigravity-ide/`) | *"`antigravity/` is your active Antigravity 2.0 app & CLI data, while `antigravity-ide/` holds isolated data from the VS Code-based Antigravity IDE 1.x created during migration."* | ℹ️ **INFO** |
+| **Over-Quota Chats** (`brain/*` > Top `N`) | *"Older past conversations beyond the most recent `N` chats kept per project (plus empty sessions that contain zero messages)."* | 🟠 **MODERATE** |
+| **Playground Prototypes** (`playground/`) | *"Standalone sandbox experiments created outside your regular code folders. Always review their folder names before deleting."* | 🟠 **MODERATE** |
+
+3. **Reassure the User About What Is ALWAYS Protected (`🔒 100% Untouched`)**:
+   Explicitly remind beginners that `Antigravity-Clean` **never touches**:
+   - Their actual **source code repositories** on disk (e.g., `~/Dev/...`, `Documents/...`).
+   - Their **logins, API keys, settings, MCP servers, rules, plugins, and skills** (`oauth_creds.json`, `settings.json`, `mcp/`, `builtin/`, `bin/`, `config/`).
+   - Their **currently active conversation** (`KEEP [ACTIVE]`, protected automatically if active within the last 15 minutes — so running the cleaner from inside a live chat is 100% safe).
 
 ---
 
-## 3. Cross-Platform Invocation (Windows, macOS, Linux)
+## 2. Critical Operational Rules for AI Agents
 
-Choose the command matching the host OS or available runtime:
+1. **Always Run a Silent JSON Audit First (Read-Only)**:
+   Never delete files blindly. Always begin by running the script in **Dry-Run JSON mode** (`--json` / `-Json` without `--execute`) to obtain exact, pre-calculated sizes for all categories and all 4 cleanup methods (`methods.A`, `methods.B`, `methods.C`, `methods.D`).
+2. **Never Do Mental Byte Math — Use Pre-Computed JSON Fields**:
+   The `--json` dry-run output directly provides `surfacesSummary`, `methods.A` through `methods.D` (with exact `bytes` and human-readable `formatted` strings), `recommendedMethod`, and `heavySubfolders`. Quote those exact figures.
+3. **Require User Confirmation Before Executing**:
+   Always present the **Work to Perform** summary and wait for explicit user approval before running `--execute` (`-Execute`), unless the user has just selected and confirmed a specific work plan in the conversation.
+4. **Always Pass `--force` (`-Force`) With `--execute` (`-Execute`)**:
+   When invoking execution from an agent tool (`run_command` / `bash` / `pwsh`), **you MUST include `--force` (`-Force`)** so the script does not block waiting for interactive `(y/N)` terminal input.
+5. **Use Interactive Choice Widgets When Available**:
+   If your agent environment provides a structured multiple-choice question tool (such as `ask_question`), use it to let the user comfortably pick between **Method A, B, C, or D** (and optional `.zip` backup) after displaying the diagnostic summary!
+
+---
+
+## 3. User-Facing Guided Commands & Workflows
+
+Users can trigger these workflows via **native slash commands** (pre-configured in `.agents/skills/` for Google Antigravity, or installed globally via `/setup-commands`) OR simply by typing the command name or natural-language equivalent in chat:
+
+| Command | Natural-Language Triggers (EN / FR) | Purpose & Agent Behavior |
+| :--- | :--- | :--- |
+| **`/clean-guide`** | *"help me clean"*, *"guide me"*, *"nettoyage guidé"*, *"aide-moi à nettoyer"* | **Full Interactive Cleanup Wizard (Default for Beginners)**. Runs JSON audit → displays **Summary 1 (Diagnostic & 4 Methods)** → helps user choose a method & backup option → shows **Summary 2 (Work Plan)** → executes upon confirmation → displays **Summary 3 (Work Accomplished)**. |
+| **`/clean-audit`** | *"audit .gemini"*, *"what is taking space?"*, *"état des lieux"*, *"diagnostic"* | **100% Read-Only Diagnostic**. Runs `--json` dry-run and outputs **Summary 1** (footprint across Antigravity 2.0, IDE & Backup, top space hogs, per-project chat count, and comparison of Methods A/B/C/D). Deletes nothing. |
+| **`/clean-safe`** | *"safe cleanup"*, *"zero risk clean"*, *"nettoyage sans risque"* | **Guided Method A (`🟢 ZERO RISK`)**. Audits and prepares `--clean-orphan-pb --clean-tmp-and-logs --clean-browser`. Keeps **100% of chats**. Shows **Summary 2 (Work Plan)** → confirms → executes → shows **Summary 3**. |
+| **`/clean-standard`** | *"standard clean"*, *"recommended clean"*, *"nettoyage standard"* | **Guided Method C (`⭐ RECOMMENDED`)** *(or Method B if user asks to keep all chats)*. Audits, lists specifically which older chats would be pruned vs kept per project, offers `--backup-dir ./backups`, confirms, executes, and reports **Summary 3**. |
+| **`/clean-project <name>`** | *"clean project X"*, *"nettoyer le projet X"* | **Single-Project Guided Cleanup**. Runs `--project-filter "<name>" --json`, displays a table of every conversation in that project (Topic, Date, Size, Keep vs Prune), asks how many recent chats to keep (`--keep-per-project`), confirms, and cleans only that project. |
+| **`/clean-deep`** | *"deep clean"*, *"full reset"*, *"nettoyage complet"* | **Guided Method D (`🚀 MAXIMUM RECOVERY`)**. Runs JSON audit, **explicitly lists every item in `heavySubfolders` (`playground/` and `scratch/`)** to prevent accidental prototype loss, enables `--backup-dir ./backups` by default, requires explicit confirmation, executes, and reports **Summary 3**. |
+| **`/setup-commands`** | *"install commands"*, *"setup slash commands"*, *"mettre en place les commandes"* | **Workspace / Global Command Installer**. Installs or updates the guided slash commands globally on the user's machine (see **Section 5** below) so `/clean-guide`, `/clean-audit`, `/clean-safe`, `/clean-standard`, `/clean-project`, and `/clean-deep` work from any project. |
+
+---
+
+## 4. Mandatory Summary Templates (Decision & Work Summaries)
+
+Adapt the headings below into the **user's language** while keeping the visual structure crisp, scannable, and reassuring.
+
+### Summary 1: Executive Diagnostic & Methods to Choose (Post-Audit)
+
+Present this immediately after running `python3 clean-antigravity.py --json` (or `.ps1 -Json`):
+
+1. **📊 Current Disk State (`~/.gemini` — Total: `<totalGeminiFormatted>`)**
+   - **Antigravity 2.0 (`antigravity/`)**: `<antigravityFormatted>` *(Active Desktop App & `agy` CLI)*
+   - **Antigravity IDE (`antigravity-ide/`)**: `<antigravityIdeFormatted>` *(Isolated VS Code-based IDE data)*
+   - **Legacy Migration Archive (`antigravity-backup/`)**: `<antigravityBackupFormatted>` *(Frozen pre-migration snapshot)*
+   - **Key Takeaway in Plain Language**: Summarize in 2–3 bullet points *where* the bulk of wasted space comes from (e.g., `<orphanPbCount>` leftover `.pb` files taking `<orphanPbBytes>`, `<prunedConversationsCount>` older/empty sessions vs `<keptConversationsCount>` recent kept sessions, migration backup, etc.).
+
+2. **🧭 Cleanup Methods Comparison (Choose Your Comfort Level)**
+
+| Method | Space Freed | Risk | Conversations Policy | What Will Be Cleaned (Plain Language) |
+| :--- | :---: | :---: | :--- | :--- |
+| **A. Zero-Risk Express** | **`<methods.A.formatted>`** | 🟢 **None** | **Keeps 100% of chats** | Leftover orphaned `.pb` files, technical logs/caches, raw step logs, and old browser videos. |
+| **B. Caches & Migration Archive** | **`<methods.B.formatted>`** | 🟡 **Low** | **Keeps 100% of chats** | **Method A** + auto-rebuilt code trackers, `scratch/` temp folders, and frozen `antigravity-backup/`. |
+| **C. Standard Hygiene *( Balanced )*** | **`<methods.C.formatted>`** | 🟠 **Moderate** | **Keeps Top `<keepPerProject>` / project** | **Method B** + empty sessions, finished subagents, and older chats beyond the `<keepPerProject>` most recent per project *(optional `.zip` backup)*. |
+| **D. Full Deep Clean + Backup** | **`<methods.D.formatted>`** | 🟠 **Moderate** | **Keeps Top `<keepPerProject>` / project** | **Method C** + `playground/` sandbox prototypes, with automatic `.zip` chat archive in `./backups`. |
+
+3. **💡 Tailored Advisor Recommendation**
+   - State clearly which method is recommended (`recommendedMethod` from JSON) and **why** in 1–2 sentences based on their numbers.
+   - If `heavySubfolders` is non-empty (`scratch/` or `playground/` contains items), list those folder names and sizes so the user knows what is inside before choosing Method B, C, or D.
+   - Ask the user which method (`A`, `B`, `C`, or `D`) they prefer, whether they want to adjust how many recent chats to keep per project (default `2`), and (for `C`/`D`) whether they want a `.zip` safety backup.
+
+---
+
+### Summary 2: Pre-Execution Work Plan ("Work to Perform")
+
+Before running `--execute --force` (or right as you confirm the chosen method), display a concise **Work Plan**:
+
+- **🎯 Selected Method**: `<Method Name>`
+- **🛠️ Exact Work to Perform**:
+  - Bullet list of each enabled module and exact size to be reclaimed (totaling **`<Planned Size>`**).
+  - If pruning conversations (`Method C` or `D`), show a compact list/table of **Kept Recent Chats** vs **Chats to Prune/Archive** (Project + Topic + Date) so there are zero surprises.
+  - **📦 Safety Backup**: `<Enabled -> ./backups/antigravity-backup-YYYYMMDD.zip | Not needed (0 chats deleted)>`
+- **🔒 Guaranteed Protected & Untouched**:
+  - Active current session (`KEEP [ACTIVE]`), source code repositories, logins (`oauth_creds.json`), settings, MCP configs, and skills/rules.
+
+---
+
+### Summary 3: Post-Cleanup Accomplishment Report ("Work Accomplished")
+
+After executing with `--execute --force --json`, present the final report from the execution JSON (`totalFreedFormatted`, `filesDeleted`, `summary`):
+
+- **✅ Cleanup Complete — Space Reclaimed**: **`<totalFreedFormatted>`** freed across **`<filesDeleted>`** cleaned items/sessions!
+- **📋 Breakdown of Work Accomplished**:
+  - Render a clean table from `summary` (`Category` | `Cleaned Items` | `Space Freed`).
+  - *Note on `Remaining` bytes (if any > 0 B)*: Reassure the user calmly that any tiny remaining log bytes simply belong to a currently open Antigravity window holding an active file lock, which is completely normal and safe.
+- **🛡️ Post-Check Verification**:
+  - Confirm that their active session, kept project conversations, settings, and source code remain 100% intact.
+
+---
+
+## 5. Setting Up Persistent Commands via `AGENT.md` (`/setup-commands`)
+
+1. **Inside This Repository (Zero Setup Needed)**:
+   Google Antigravity workspace skills are **already pre-configured** in `.agents/skills/` (`clean-guide`, `clean-audit`, `clean-safe`, `clean-standard`, `clean-project`, `clean-deep`, `setup-commands`) along with `.agents/rules/guided-cleanup.md`. Users in Antigravity 2.0 or Antigravity IDE can immediately type `/clean-guide` or `/clean-audit` in the chat box.
+
+2. **Global Installation Across All Projects (When User Runs `/setup-commands` or Asks to Install Globally)**:
+   When the user asks you to set up these commands globally so they work from **any** workspace on their computer:
+   - Resolve the absolute path `<REPO_PATH>` of this `Antigravity-Clean` repository on the user's machine.
+   - **For Google Antigravity (`~/.gemini/config/skills/`)**:
+     Copy the skill folders from `<REPO_PATH>/.agents/skills/{clean-guide,clean-audit,clean-safe,clean-standard,clean-project,clean-deep}` into `~/.gemini/config/skills/`, updating the relative path inside each copied `SKILL.md` so scripts and `AGENT.md` point to `<REPO_PATH>/clean-antigravity.py` (or `.ps1`) and `<REPO_PATH>/AGENT.md`.
+   - **For Claude Code (`~/.claude/commands/`)** *(if requested or if `.claude` is used)*:
+     Create Markdown command files (`clean-guide.md`, `clean-audit.md`, `clean-safe.md`, `clean-standard.md`, `clean-deep.md`) instructing Claude to read `<REPO_PATH>/AGENT.md` and run the corresponding workflow using `<REPO_PATH>/clean-antigravity.py`.
+   - Confirm to the user which slash commands were installed and how to invoke them from any project!
+
+---
+
+## 6. Cross-Platform CLI Invocation (Windows, macOS, Linux)
+
+Choose the runtime matching the host OS. Note that `clean-antigravity.py` and `clean-antigravity.sh` accept **both** POSIX (`--kebab-case`) and PowerShell (`-PascalCase`) flags!
 
 ### Option A: Universal Python 3 (Windows, macOS, Linux — Zero Dependencies)
 ```bash
-# Dry-run audit (human-readable table)
-python3 clean-antigravity.py
-
-# Dry-run audit (structured JSON output for agent parsing)
+# 1. Read-only JSON diagnostic (Always run this first!)
 python3 clean-antigravity.py --json
+# (On Windows where Python is 'python': python clean-antigravity.py --json)
 
-# Execute 100% risk-free cleanup non-interactively
+# 2. Method A — Zero-Risk Express (Non-interactive execution)
 python3 clean-antigravity.py --clean-orphan-pb --clean-tmp-and-logs --clean-browser --execute --force
+
+# 3. Method B — Caches & Migration Archive (Keeps 100% of chats)
+python3 clean-antigravity.py --clean-orphan-pb --clean-tmp-and-logs --clean-browser --clean-trackers --clean-scratch --clean-backup --execute --force
+
+# 4. Method C — Standard Recommended Hygiene (+ optional --backup-dir ./backups)
+python3 clean-antigravity.py --clean-conversations --clean-orphan-pb --clean-tmp-and-logs --clean-browser --clean-trackers --clean-scratch --clean-backup --backup-dir ./backups --execute --force
+
+# 5. Method D — Full Deep Clean with Safety ZIP Backup
+python3 clean-antigravity.py --deep-clean --backup-dir ./backups --execute --force
 ```
-*(Note: On Windows where Python is aliased as `python`, use `python clean-antigravity.py ...`)*
 
-### Option B: PowerShell (`pwsh` on Windows/macOS/Linux, or `powershell` on Windows)
+### Option B: PowerShell (`pwsh` 7+ Cross-Platform or Windows PowerShell 5.1)
 ```powershell
-# Dry-run audit (English default)
-pwsh -NoProfile -ExecutionPolicy Bypass -File ./clean-antigravity.ps1
-
-# Dry-run audit (French)
-pwsh -NoProfile -ExecutionPolicy Bypass -File ./clean-antigravity.fr.ps1
-
-# Dry-run audit (JSON output for agent parsing)
+# 1. Read-only JSON diagnostic
 pwsh -NoProfile -ExecutionPolicy Bypass -File ./clean-antigravity.ps1 -Json
 
-# Execute 100% risk-free cleanup non-interactively
+# 2. Method A — Zero-Risk Express
 pwsh -NoProfile -ExecutionPolicy Bypass -File ./clean-antigravity.ps1 -CleanOrphanPb -CleanTmpAndLogs -CleanBrowser -Execute -Force
+
+# 3. Method B — Caches & Migration Archive (Keeps 100% of chats)
+pwsh -NoProfile -ExecutionPolicy Bypass -File ./clean-antigravity.ps1 -CleanOrphanPb -CleanTmpAndLogs -CleanBrowser -CleanTrackers -CleanScratch -CleanBackup -Execute -Force
+
+# 4. Method C — Standard Recommended Hygiene (+ optional -BackupDir ./backups)
+pwsh -NoProfile -ExecutionPolicy Bypass -File ./clean-antigravity.ps1 -CleanConversations -CleanOrphanPb -CleanTmpAndLogs -CleanBrowser -CleanTrackers -CleanScratch -CleanBackup -BackupDir ./backups -Execute -Force
+
+# 5. Method D — Full Deep Clean with Safety ZIP Backup
+pwsh -NoProfile -ExecutionPolicy Bypass -File ./clean-antigravity.ps1 -DeepClean -BackupDir ./backups -Execute -Force
 ```
 
 ### Option C: Universal OS Terminal Wrappers
-- **macOS / Linux / WSL / Git Bash**:
-  ```bash
-  sh ./clean-antigravity.sh --json
-  sh ./clean-antigravity.sh --deep-clean --execute --force
-  ```
-- **Windows Command Prompt (`cmd.exe`)**:
-  ```cmd
-  clean-antigravity.cmd -Json
-  clean-antigravity.cmd -DeepClean -Execute -Force
-  ```
+- **macOS / Linux / WSL / Git Bash**: `sh ./clean-antigravity.sh --json`
+- **Windows Command Prompt (`cmd.exe`)**: `clean-antigravity.cmd -Json`
 
 ---
 
-## 4. Agent Decision Matrix & Risk Levels
-
-When a user asks an agent to "clean up Antigravity", "free disk space in `.gemini`", or "optimize Antigravity caches", follow this decision matrix:
-
-| Tier | Target Flags | Risk Level | What It Deletes | When Agent Should Use |
-| :--- | :--- | :--- | :--- | :--- |
-| **Tier 1: Zero-Risk Cleanup** | `-CleanOrphanPb -CleanTmpAndLogs -CleanBrowser` | **NONE** | Orphaned `.pb` states, `tmp/`, `cache/`, `log/`, `crashes/`, browser recordings, raw `steps/` & `tasks/` logs in inactive kept chats across `antigravity/` and `antigravity-ide/`. | Safe to execute autonomously anytime without losing any conversation history or code. |
-| **Tier 2: Standard + Caches & Migration Backup** | Tier 1 + `-CleanTrackers -CleanScratch -CleanBackup` | **LOW** | Adds `implicit/`, `code_tracker/`, `context_state/` (rebuilt automatically), `scratch/` temporary folders, and `antigravity-backup/` legacy migration archive. | Recommended when the user wants significant space recovery without losing recent project chats. |
-| **Tier 3: Conversation Quota Pruning** | `-CleanConversations` (Default) | **MODERATE** | Deletes empty sessions, completed subagents, and conversations older than the top `KeepPerProject` (default `2`) per project per surface. | Use when pruning old chat history. Add `-BackupDir ./backups` if the user wants a `.zip` archive before deletion. |
-| **Tier 4: Full Deep Clean** | `-DeepClean` | **MODERATE** | Enables **all** options above (`1` through `8`), including `playground/`. | Verify with the user before deleting `playground/` if `playgroundBytes > 0`, or pass `-BackupDir ./backups`. |
-
----
-
-## 5. Complete CLI Reference (PowerShell & POSIX Flags)
+## 7. Complete CLI Reference (`1`–`20`)
 
 | # | PowerShell Flag | POSIX / Python Flag | Type | Default | Description |
 | :-: | :--- | :--- | :---: | :---: | :--- |
@@ -106,7 +197,7 @@ When a user asks an agent to "clean up Antigravity", "free disk space in `.gemin
 | **5** | `-CleanOrphanPb` | `--clean-orphan-pb` | `switch` | Auto* | Clean orphaned `.pb` files in `conversations/` missing from `brain/` (**Risk: NONE**). |
 | **6** | `-CleanTmpAndLogs` | `--clean-tmp-and-logs` | `switch` | `false` | Clean `tmp`, `cache`, `log`, `crashes`, and raw `steps`/`tasks` logs (**Risk: NONE**). |
 | **7** | `-CleanBrowser` | `--clean-browser` | `switch` | `false` | Clean `browser_recordings` (**Risk: NONE**). |
-| **8** | `-CleanTrackers` | `--clean-trackers` | `switch` | `false` | Clean `code_tracker`, `implicit`, and `context_state` (**Risk: LOW**). |
+| **8** | `-CleanTrackers` | `--clean-trackers` | `switch` | `false` | Clean `implicit`, `code_tracker`, and `context_state` (**Risk: LOW**). |
 | **9** | `-CleanScratch` | `--clean-scratch` | `switch` | `false` | Clean `scratch` temporary workspaces (**Risk: LOW**). |
 | **10** | `-CleanPlayground` | `--clean-playground` | `switch` | `false` | Clean `playground` sandbox projects (**Risk: MODERATE**). |
 | **11** | `-CleanBackup` | `--clean-backup` | `switch` | `false` | Clean `~/.gemini/antigravity-backup` legacy migration archive (**Risk: LOW**). |
@@ -116,13 +207,13 @@ When a user asks an agent to "clean up Antigravity", "free disk space in `.gemin
 | **15** | `-BackupDir <path>` | `--backup-dir <path>` | `string` | `""` | Create a timestamped `.zip` backup of `brain/` conversations before deleting them. |
 | **16** | `-GeminiRoot <path>` | `--gemini-root <path>` | `string` | `~/.gemini` | Override the target `.gemini` root directory path. |
 | **17** | `-Lang <en\|fr>` | `--lang <en\|fr>` | `string` | `en` | Output language (`en` for English, `fr` for French). |
-| **18** | `-Json` | `--json` | `switch` | `false` | Emit a structured JSON object instead of console tables. |
+| **18** | `-Json` | `--json` | `switch` | `false` | Emit a structured JSON object with pre-computed `methods`, `surfacesSummary`, and targets. |
 | **19** | `-Execute` | `--execute` | `switch` | `false` | Perform actual deletion (omit for Dry-Run simulation). |
 | **20** | `-Force` | `--force` | `switch` | `false` | Skip interactive `(y/N)` confirmation prompt (**Required for AI agents**). |
 
 ---
 
-## 6. JSON Output Schema (`-Json` / `--json`)
+## 8. JSON Output Schema (`--json` / `-Json`)
 
 ### Dry-Run JSON Output (`--json`)
 ```json
@@ -130,12 +221,32 @@ When a user asks an agent to "clean up Antigravity", "free disk space in `.gemin
   "mode": "dry-run",
   "geminiRoot": "/Users/dev/.gemini",
   "keepPerProject": 2,
-  "totalPlannedBytes": 771125248,
-  "totalPlannedFormatted": "735.4 MB",
-  "totalDeepCleanBytes": 1359125248,
-  "totalDeepCleanFormatted": "1.27 GB",
+  "totalPlannedBytes": 616013824,
+  "totalPlannedFormatted": "587.48 MB",
+  "totalDeepCleanBytes": 1204391219,
+  "totalDeepCleanFormatted": "1.12 GB",
+  "surfacesSummary": {
+    "totalGeminiBytes": 1514123456,
+    "totalGeminiFormatted": "1.41 GB",
+    "antigravityBytes": 59876543,
+    "antigravityFormatted": "57.10 MB",
+    "antigravityIdeBytes": 862345678,
+    "antigravityIdeFormatted": "822.40 MB",
+    "antigravityBackupBytes": 558388224,
+    "antigravityBackupFormatted": "532.52 MB",
+    "keptConversationsCount": 14,
+    "prunedConversationsCount": 15,
+    "orphanPbCount": 137
+  },
+  "recommendedMethod": "C",
+  "methods": {
+    "A": { "id": "A", "name": "Zero-Risk Hygiene (Keep All Chats)", "risk": "NONE", "keepsAllChats": true, "bytes": 391439052, "formatted": "373.31 MB", "posixFlags": "...", "ps1Flags": "..." },
+    "B": { "id": "B", "name": "Deep Cache & Migration Cleanup (Keep All Chats)", "risk": "LOW", "keepsAllChats": true, "bytes": 979816549, "formatted": "934.43 MB", "posixFlags": "...", "ps1Flags": "..." },
+    "C": { "id": "C", "name": "Standard Recommended Hygiene (Keep Top 2 Chats/Project + Caches)", "risk": "MODERATE", "keepsAllChats": false, "bytes": 1204391219, "formatted": "1.12 GB", "posixFlags": "...", "ps1Flags": "..." },
+    "D": { "id": "D", "name": "Full Deep Clean + ZIP Backup (Includes Playground)", "risk": "MODERATE", "keepsAllChats": false, "bytes": 1204391219, "formatted": "1.12 GB", "posixFlags": "...", "ps1Flags": "..." }
+  },
   "categories": {
-    "conversationsBytes": 380108800,
+    "conversationsBytes": 224997274,
     "orphanPbBytes": 391016448,
     "tmpAndLogsBytes": 422604,
     "browserBytes": 0,
@@ -144,6 +255,7 @@ When a user asks an agent to "clean up Antigravity", "free disk space in `.gemin
     "playgroundBytes": 0,
     "backupBytes": 558388224
   },
+  "heavySubfolders": [],
   "conversations": [...],
   "orphanPbFiles": [...],
   "modularTargets": [...]
@@ -155,17 +267,17 @@ When a user asks an agent to "clean up Antigravity", "free disk space in `.gemin
 {
   "mode": "execute",
   "geminiRoot": "/Users/dev/.gemini",
-  "totalPlannedBytes": 422604,
-  "totalPlannedFormatted": "412.7 KB",
-  "totalFreedBytes": 422604,
-  "totalFreedFormatted": "412.7 KB",
-  "filesDeleted": 162,
+  "totalPlannedBytes": 391439052,
+  "totalPlannedFormatted": "373.31 MB",
+  "totalFreedBytes": 391439052,
+  "totalFreedFormatted": "373.31 MB",
+  "filesDeleted": 299,
   "summary": [
     {
-      "Category": "Logs 'antigravity/log'",
-      "PurgedItems": "2/2 files",
-      "Planned": "161.3 KB",
-      "ActuallyFreed": "161.3 KB",
+      "Category": "Orphaned .pb files in 'conversations/'",
+      "PurgedItems": "137/137 items",
+      "Planned": "372.90 MB",
+      "ActuallyFreed": "372.90 MB",
       "Remaining": "0 B"
     }
   ]

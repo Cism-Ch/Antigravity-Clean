@@ -563,6 +563,8 @@ def main() -> int:
 
     # --- 1. Directory Tree Report ---
     tree_rows: List[Dict[str, Any]] = []
+    top_level_sizes: Dict[str, int] = {}
+    total_gemini_bytes = 0
     try:
         level1_items = sorted(gemini_root.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
     except OSError:
@@ -598,6 +600,8 @@ def main() -> int:
                         agy_files += 1
                         sub_entries.append({"Item": item2, "IsDir": False, "Bytes": sz2, "Files": 1, "Dirs": 0})
 
+                top_level_sizes[item1.name] = agy_bytes
+                total_gemini_bytes += agy_bytes
                 info1 = get_folder_info(item1.name, agy_bytes)
                 tree_rows.append({
                     "Tree": f"{branch1}[{item1.name}]",
@@ -641,6 +645,8 @@ def main() -> int:
                     })
             else:
                 b1, f1, _ = get_folder_stats(item1)
+                top_level_sizes[item1.name] = b1
+                total_gemini_bytes += b1
                 info1 = get_folder_info(item1.name, b1)
                 tree_rows.append({
                     "Tree": f"{branch1}[{item1.name}]",
@@ -655,6 +661,8 @@ def main() -> int:
                 sz1 = item1.stat().st_size
             except OSError:
                 sz1 = 0
+            top_level_sizes[item1.name] = sz1
+            total_gemini_bytes += sz1
             tree_rows.append({
                 "Tree": f"{branch1}{item1.name}",
                 "Status": msg("KEEP [CONFIG]", "CONSERVER [CONFIG]"),
@@ -739,16 +747,19 @@ def main() -> int:
                 is_protected_by_age = (args.max_age_days > 0) and (days_since < args.max_age_days)
 
                 should_delete = False
+                would_prune = False
                 if is_active_now:
                     status = msg("KEEP [ACTIVE]", "CONSERVER [ACTIF]")
                     risk = msg("PROTECTED (active session)", "PROTEGE (session en cours)")
                     if not item["IsSubagent"]:
                         kept_count += 1
                 elif item["IsEmptySession"]:
+                    would_prune = True
                     should_delete = do_conversations
                     status = msg("DELETE [EMPTY SESSION]", "SUPPRIMER [SESSION VIDE]") if do_conversations else msg("KEEP (Empty session)", "CONSERVER (Session vide)")
                     risk = msg("NONE (no messages/artifacts)", "AUCUN (aucun message/artefact)")
                 elif args.prune_orphan_projects and is_orphan:
+                    would_prune = True
                     should_delete = do_conversations
                     status = msg("DELETE [MISSING PROJECT]", "SUPPRIMER [PROJET ABSENT]") if do_conversations else msg("KEEP [ORPHAN]", "CONSERVER [ORPHELIN]")
                     risk = msg("MODERATE (project deleted from disk)", "MODERE (projet supprime du disque)")
@@ -757,6 +768,7 @@ def main() -> int:
                         status = msg("KEEP [SUBAGENT]", "CONSERVER [SUBAGENT]")
                         risk = msg("KEPT (outside main quota)", "CONSERVE (hors quota principal)")
                     else:
+                        would_prune = True
                         should_delete = do_conversations
                         status = msg("DELETE [SUBAGENT]", "SUPPRIMER [SUBAGENT]") if do_conversations else msg("KEEP [SUBAGENT]", "CONSERVER [SUBAGENT]")
                         risk = msg("LOW (completed subagent)", "FAIBLE (sous-agent termine)")
@@ -765,6 +777,7 @@ def main() -> int:
                     risk = msg("KEPT", "CONSERVE")
                     kept_count += 1
                 else:
+                    would_prune = True
                     should_delete = do_conversations
                     status = msg("DELETE (Over Quota)", "SUPPRIMER (Hors Quota)") if do_conversations else msg("KEEP (Over Quota)", "CONSERVER (Hors Quota)")
                     risk = msg(f"MODERATE (older chat > Top {args.keep_per_project})", f"MODERE (ancien chat > Top {args.keep_per_project})")
@@ -793,6 +806,7 @@ def main() -> int:
                     "PairedPaths": paired_paths,
                     "IsActiveNow": is_active_now,
                     "ShouldDelete": should_delete,
+                    "WouldPrune": would_prune,
                 }
                 conv_report.append(row)
 
@@ -974,6 +988,37 @@ def main() -> int:
                         "KeepRootDir": False,
                     })
 
+    # Collect scratch & playground subfolder previews (for both console and JSON guided assistant)
+    heavy_subfolders: List[Dict[str, Any]] = []
+    for surf in surfaces:
+        for heavy_name in ("scratch", "playground"):
+            hp = surf["Root"] / heavy_name
+            if hp.is_dir():
+                try:
+                    sub_dirs = list(hp.iterdir())
+                except OSError:
+                    sub_dirs = []
+                if sub_dirs:
+                    sub_report = []
+                    for sd in sub_dirs:
+                        sz, _, _ = get_folder_stats(sd)
+                        try:
+                            mt = datetime.datetime.fromtimestamp(sd.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                        except OSError:
+                            mt = "-"
+                        item_entry = {
+                            "Surface": surf["Name"],
+                            "Category": heavy_name,
+                            "Name": sd.name,
+                            "Subfolder": f"  |-- {sd.name}",
+                            "Size": format_size(sz, is_fr),
+                            "LastModified": mt,
+                            "SizeBytes": sz,
+                            "Path": str(sd),
+                        }
+                        sub_report.append(item_entry)
+                        heavy_subfolders.append(item_entry)
+
     if not args.json and modular_targets:
         print()
         cprint(
@@ -993,40 +1038,25 @@ def main() -> int:
 
         for surf in surfaces:
             for heavy_name in ("scratch", "playground"):
-                hp = surf["Root"] / heavy_name
-                if hp.is_dir():
-                    try:
-                        sub_dirs = list(hp.iterdir())
-                    except OSError:
-                        sub_dirs = []
-                    if sub_dirs:
-                        cprint(
-                            msg(
-                                f"  Inner contents of '{surf['Name']}/{heavy_name}' ({len(sub_dirs)} item(s)):",
-                                f"  Detail du contenu de '{surf['Name']}/{heavy_name}' ({len(sub_dirs)} element(s)) :",
-                            ),
-                            "dark_cyan",
-                        )
-                        sub_report = []
-                        for sd in sub_dirs:
-                            sz, _, _ = get_folder_stats(sd)
-                            try:
-                                mt = datetime.datetime.fromtimestamp(sd.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-                            except OSError:
-                                mt = "-"
-                            sub_report.append({
-                                "Subfolder": f"  |-- {sd.name}",
-                                "Size": format_size(sz, is_fr),
-                                "LastModified": mt,
-                                "SizeBytes": sz,
-                            })
-                        top_subs = sorted(sub_report, key=lambda x: x["SizeBytes"], reverse=True)[:8]
-                        cols_sub = (
-                            [("Subfolder", "SousDossier"), ("Size", "Taille"), ("LastModified", "DernierMod")]
-                            if is_fr
-                            else [("Subfolder", "Subfolder"), ("Size", "Size"), ("LastModified", "LastModified")]
-                        )
-                        print_table(top_subs, cols_sub)
+                surf_subs = [
+                    h for h in heavy_subfolders
+                    if h["Surface"] == surf["Name"] and h["Category"] == heavy_name
+                ]
+                if surf_subs:
+                    cprint(
+                        msg(
+                            f"  Inner contents of '{surf['Name']}/{heavy_name}' ({len(surf_subs)} item(s)):",
+                            f"  Detail du contenu de '{surf['Name']}/{heavy_name}' ({len(surf_subs)} element(s)) :",
+                        ),
+                        "dark_cyan",
+                    )
+                    top_subs = sorted(surf_subs, key=lambda x: x["SizeBytes"], reverse=True)[:8]
+                    cols_sub = (
+                        [("Subfolder", "SousDossier"), ("Size", "Taille"), ("LastModified", "DernierMod")]
+                        if is_fr
+                        else [("Subfolder", "Subfolder"), ("Size", "Size"), ("LastModified", "LastModified")]
+                    )
+                    print_table(top_subs, cols_sub)
 
     active_modular = [m for m in modular_targets if m["Enabled"]]
     active_modular_bytes = sum(m["SizeBytes"] for m in active_modular)
@@ -1041,6 +1071,41 @@ def main() -> int:
     trackers_bytes = sum(m["SizeBytes"] for m in modular_targets if m["Category"] == "trackers")
     tmp_logs_bytes = sum(m["SizeBytes"] for m in modular_targets if m["Category"] == "tmpLogs")
     backup_bytes = sum(m["SizeBytes"] for m in modular_targets if m["Category"] == "backup")
+
+    # Pre-compute exact byte totals for all 4 Guided Cleanup Methods (A, B, C, D)
+    would_prune_convs = [c for c in conv_report if c["WouldPrune"]]
+    would_prune_bytes = sum(c["SizeBytes"] for c in would_prune_convs)
+    would_prune_raw_logs_bytes = 0
+    extra_tmp_logs_in_deleted_bytes = 0
+    for c in would_prune_convs:
+        if c["IsActiveNow"]:
+            continue
+        raw_sz = 0
+        for sub in ("steps", "tasks"):
+            sp = Path(c["FullPath"]) / ".system_generated" / sub
+            if sp.exists():
+                b_sz, _, _ = get_folder_stats(sp)
+                raw_sz += b_sz
+        would_prune_raw_logs_bytes += raw_sz
+        if c["ShouldDelete"]:
+            extra_tmp_logs_in_deleted_bytes += raw_sz
+
+    tmp_logs_all_chats_bytes = tmp_logs_bytes + extra_tmp_logs_in_deleted_bytes
+    tmp_logs_with_pruning_bytes = max(0, tmp_logs_all_chats_bytes - would_prune_raw_logs_bytes)
+
+    method_a_bytes = orphan_conv_bytes + tmp_logs_all_chats_bytes + browser_bytes
+    method_b_bytes = method_a_bytes + trackers_bytes + scratch_bytes + backup_bytes
+    method_c_bytes = would_prune_bytes + orphan_conv_bytes + tmp_logs_with_pruning_bytes + browser_bytes + trackers_bytes + scratch_bytes + backup_bytes
+    method_d_bytes = method_c_bytes + playground_bytes
+
+    if method_d_bytes == 0:
+        rec_id = "NONE"
+    elif would_prune_bytes == 0 and (trackers_bytes + scratch_bytes + backup_bytes) == 0:
+        rec_id = "A"
+    elif would_prune_bytes == 0:
+        rec_id = "B"
+    else:
+        rec_id = "C"
 
     if not args.json:
         sel_lbl = msg("SELECTED ", "SELECTIONNE")
@@ -1109,6 +1174,11 @@ def main() -> int:
     # --- Dry-Run vs Execute ---
     if not args.execute:
         if args.json:
+            agy_20_bytes = top_level_sizes.get("antigravity", 0)
+            agy_ide_bytes = top_level_sizes.get("antigravity-ide", 0)
+            agy_bak_bytes = top_level_sizes.get("antigravity-backup", 0)
+            kept_conv_count = len([c for c in conv_report if not c["WouldPrune"]])
+            pruned_conv_count = len(would_prune_convs)
             print(
                 json.dumps(
                     {
@@ -1119,6 +1189,62 @@ def main() -> int:
                         "totalPlannedFormatted": format_size(total_planned_bytes, is_fr),
                         "totalDeepCleanBytes": total_deep_clean_bytes,
                         "totalDeepCleanFormatted": format_size(total_deep_clean_bytes, is_fr),
+                        "surfacesSummary": {
+                            "totalGeminiBytes": total_gemini_bytes,
+                            "totalGeminiFormatted": format_size(total_gemini_bytes, is_fr),
+                            "antigravityBytes": agy_20_bytes,
+                            "antigravityFormatted": format_size(agy_20_bytes, is_fr),
+                            "antigravityIdeBytes": agy_ide_bytes,
+                            "antigravityIdeFormatted": format_size(agy_ide_bytes, is_fr),
+                            "antigravityBackupBytes": agy_bak_bytes,
+                            "antigravityBackupFormatted": format_size(agy_bak_bytes, is_fr),
+                            "keptConversationsCount": kept_conv_count,
+                            "prunedConversationsCount": pruned_conv_count,
+                            "orphanPbCount": len(orphan_conv_items),
+                        },
+                        "recommendedMethod": rec_id,
+                        "methods": {
+                            "A": {
+                                "id": "A",
+                                "name": "Zero-Risk Hygiene (Keep All Chats)",
+                                "risk": "NONE",
+                                "keepsAllChats": True,
+                                "bytes": method_a_bytes,
+                                "formatted": format_size(method_a_bytes, is_fr),
+                                "posixFlags": "--clean-orphan-pb --clean-tmp-and-logs --clean-browser",
+                                "ps1Flags": "-CleanOrphanPb -CleanTmpAndLogs -CleanBrowser",
+                            },
+                            "B": {
+                                "id": "B",
+                                "name": "Deep Cache & Migration Cleanup (Keep All Chats)",
+                                "risk": "LOW",
+                                "keepsAllChats": True,
+                                "bytes": method_b_bytes,
+                                "formatted": format_size(method_b_bytes, is_fr),
+                                "posixFlags": "--clean-orphan-pb --clean-tmp-and-logs --clean-browser --clean-trackers --clean-scratch --clean-backup",
+                                "ps1Flags": "-CleanOrphanPb -CleanTmpAndLogs -CleanBrowser -CleanTrackers -CleanScratch -CleanBackup",
+                            },
+                            "C": {
+                                "id": "C",
+                                "name": f"Standard Recommended Hygiene (Keep Top {args.keep_per_project} Chats/Project + Caches)",
+                                "risk": "MODERATE",
+                                "keepsAllChats": False,
+                                "bytes": method_c_bytes,
+                                "formatted": format_size(method_c_bytes, is_fr),
+                                "posixFlags": "--clean-conversations --clean-orphan-pb --clean-tmp-and-logs --clean-browser --clean-trackers --clean-scratch --clean-backup",
+                                "ps1Flags": "-CleanConversations -CleanOrphanPb -CleanTmpAndLogs -CleanBrowser -CleanTrackers -CleanScratch -CleanBackup",
+                            },
+                            "D": {
+                                "id": "D",
+                                "name": "Full Deep Clean + ZIP Backup (Includes Playground)",
+                                "risk": "MODERATE",
+                                "keepsAllChats": False,
+                                "bytes": method_d_bytes,
+                                "formatted": format_size(method_d_bytes, is_fr),
+                                "posixFlags": "--deep-clean --backup-dir ./backups",
+                                "ps1Flags": "-DeepClean -BackupDir ./backups",
+                            },
+                        },
                         "categories": {
                             "conversationsBytes": brain_freed_bytes,
                             "orphanPbBytes": orphan_conv_bytes,
@@ -1129,6 +1255,7 @@ def main() -> int:
                             "playgroundBytes": playground_bytes,
                             "backupBytes": backup_bytes,
                         },
+                        "heavySubfolders": heavy_subfolders,
                         "conversations": conv_report,
                         "orphanPbFiles": orphan_conv_items,
                         "modularTargets": modular_targets,
